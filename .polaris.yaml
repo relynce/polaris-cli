@@ -1,0 +1,6 @@
+# Polaris project configuration
+# Used by detect-risks and reliability-review skills for consistent service naming
+project: polaris-cli
+components:
+    - name: polaris-cli
+      path: .

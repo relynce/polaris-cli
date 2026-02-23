@@ -117,6 +117,8 @@ func main() {
 		cmdEvidence(os.Args[2:])
 	case "config":
 		cmdConfig(os.Args[2:])
+	case "skills":
+		cmdSkills(os.Args[2:])
 	case "version":
 		fmt.Printf("polaris version %s (%s)\n", version, gitHash)
 	case "help", "--help", "-h":
@@ -144,6 +146,7 @@ Commands:
   control            Query reliability controls catalog
   knowledge          Query organizational knowledge base (facts, procedures, patterns)
   evidence           Manage control evidence (submit, list, verify)
+  skills             Manage Claude Code skills (update, status)
   config show        Show current configuration (API key masked)
   config set <k> <v> Set a configuration value
   version            Show version information
@@ -199,6 +202,11 @@ Examples:
   polaris evidence submit --control=RC-018 --type=code --name="Circuit breaker impl" --url="https://github.com/..."
   polaris evidence list --status=configured
   polaris evidence verify <evidence-id>
+
+Skills Command:
+  polaris skills update                Download latest skills from server
+  polaris skills update --force        Re-download even if up to date
+  polaris skills status                Show installed skills version
 
 Init Command:
   polaris init                         Interactive initialization
@@ -388,7 +396,7 @@ func checkInstalledSkills() {
 	targetDir := filepath.Join(home, ".claude", "commands", "polaris")
 
 	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
-		fmt.Println("  Not installed (run 'polaris init' to install)")
+		fmt.Println("  Not installed (run 'polaris skills update' or 'polaris init' to install)")
 		return
 	}
 
@@ -396,10 +404,48 @@ func checkInstalledSkills() {
 
 	if installedVersion == "" {
 		fmt.Println("  Installed (version unknown)")
-		fmt.Println("  Run 'polaris init --force -y' to update")
+		fmt.Println("  Run 'polaris skills update' to update")
 	} else {
 		fmt.Printf("  Installed (%s)\n", installedVersion)
-		fmt.Println("  Run 'polaris init --force -y' to update from server")
+		fmt.Println("  Run 'polaris skills update' to update from server")
+	}
+}
+
+// cmdSkills handles skills subcommands (update, status).
+func cmdSkills(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, `Usage: polaris skills <command>
+
+Commands:
+  update    Download latest skills from server
+  status    Show installed skills version`)
+		os.Exit(1)
+	}
+
+	switch args[0] {
+	case "update":
+		force := false
+		for _, a := range args[1:] {
+			if a == "--force" || a == "-f" {
+				force = true
+			}
+		}
+		installed, ver, err := downloadAndInstallSkills(force, true)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if !installed {
+			fmt.Fprintln(os.Stderr, "Skills installation failed")
+			os.Exit(1)
+		}
+		_ = ver
+	case "status":
+		checkInstalledSkills()
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown skills command: %s\n", args[0])
+		fmt.Fprintln(os.Stderr, "Usage: polaris skills <update|status>")
+		os.Exit(1)
 	}
 }
 
@@ -2600,7 +2646,8 @@ Options:
 What it does:
   1. Creates .polaris.yaml with project name and detected components
   2. Installs Claude Code skills to ~/.claude/commands/polaris/
-  3. Checks if API credentials are configured
+  3. Adds Polaris sections to AGENTS.md (creates or appends)
+  4. Checks if API credentials are configured
 
 Examples:
   polaris init                         Interactive setup
@@ -2709,7 +2756,27 @@ func cmdInit(args []string) {
 		fmt.Println()
 	}
 
-	// Step 4: Check credentials
+	// Step 4: Set up AGENTS.md
+	agentsMdAction := ""
+	action, err := ensureAgentsMd(gitRoot, force, yesAll)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not set up AGENTS.md: %v\n", err)
+	} else {
+		agentsMdAction = action
+		switch action {
+		case "created":
+			fmt.Println("Created AGENTS.md with Polaris sections")
+		case "appended":
+			fmt.Println("Appended Polaris sections to AGENTS.md")
+		case "updated":
+			fmt.Println("Updated Polaris sections in AGENTS.md")
+		case "skipped":
+			fmt.Println("AGENTS.md: Skipped")
+		}
+	}
+	fmt.Println()
+
+	// Step 5: Check credentials
 	credentialsConfigured := false
 	credentialsURL := ""
 	loginCfg, _ := loadConfig()
@@ -2723,8 +2790,8 @@ func cmdInit(args []string) {
 	}
 	fmt.Println()
 
-	// Step 5: Print summary
-	printInitSummary(cfg, skillsInstalled, skillsVersion, credentialsConfigured)
+	// Step 6: Print summary
+	printInitSummary(cfg, skillsInstalled, skillsVersion, credentialsConfigured, agentsMdAction)
 }
 
 // buildProjectConfig creates a ProjectConfig interactively or from defaults
@@ -3490,7 +3557,7 @@ func getInstalledSkillsVersion(dir string) string {
 }
 
 // printInitSummary prints the final summary after initialization
-func printInitSummary(cfg *ProjectConfig, skillsInstalled bool, skillsVersion string, credentialsConfigured bool) {
+func printInitSummary(cfg *ProjectConfig, skillsInstalled bool, skillsVersion string, credentialsConfigured bool, agentsMdAction string) {
 	fmt.Println("Polaris initialized!")
 	fmt.Println()
 
@@ -3510,6 +3577,19 @@ func printInitSummary(cfg *ProjectConfig, skillsInstalled bool, skillsVersion st
 		fmt.Println("  Skills:      Skipped")
 	}
 
+	switch agentsMdAction {
+	case "created":
+		fmt.Println("  AGENTS.md:   Created")
+	case "appended":
+		fmt.Println("  AGENTS.md:   Updated (Polaris sections appended)")
+	case "updated":
+		fmt.Println("  AGENTS.md:   Updated (Polaris sections refreshed)")
+	case "skipped":
+		fmt.Println("  AGENTS.md:   Skipped")
+	default:
+		fmt.Println("  AGENTS.md:   Not configured")
+	}
+
 	if credentialsConfigured {
 		fmt.Println("  Credentials: Configured")
 	} else {
@@ -3524,6 +3604,148 @@ func printInitSummary(cfg *ProjectConfig, skillsInstalled bool, skillsVersion st
 	fmt.Println("  polaris status              Check API connection")
 	fmt.Println("  /polaris:detect-risks       Run first risk scan")
 	fmt.Println("  /polaris:sre-context        Load reliability context")
+}
+
+// polarisAgentsMarker is used to detect existing Polaris content in AGENTS.md
+const polarisAgentsMarker = "<!-- polaris-agents-start -->"
+const polarisAgentsEndMarker = "<!-- polaris-agents-end -->"
+
+// polarisAgentsContent is the Polaris-specific content appended to AGENTS.md
+const polarisAgentsContent = `
+<!-- polaris-agents-start -->
+## Polaris Reliability Analysis
+
+This project uses **Polaris** for reliability risk analysis. Use ` + "`/polaris:*`" + ` skills during development.
+
+### Polaris Quick Reference
+
+` + "```bash" + `
+# Reliability analysis
+/polaris:detect-risks <service>    # Scan for risks and persist findings
+/polaris:risk-check <service>      # Quick risk assessment
+/polaris:risk-guidance R-XXX       # Remediation guidance for a specific risk
+/polaris:control-guidance RC-XXX   # Implementation guidance for a control
+/polaris:submit-evidence RC-XXX    # Submit evidence after implementing a control
+/polaris:reliability-review        # Review code changes for reliability
+polaris risk show R-XXX            # See which controls map to a risk
+polaris knowledge search <query>   # Search organizational knowledge base
+polaris evidence list              # List evidence records
+` + "```" + `
+
+### Session Close-Out (Risks)
+
+When ending a work session where reliability risks were addressed:
+
+1. **Submit evidence** for each control you implemented:
+   ` + "```bash" + `
+   polaris evidence submit --control=RC-XXX --type=code --name="description" --url="file or PR URL"
+   ` + "```" + `
+
+2. **Resolve risks** that were fully addressed:
+   ` + "```bash" + `
+   polaris risk resolve R-XXX --reason="Implemented <brief description>"
+   ` + "```" + `
+
+3. **Scan for regressions** if significant code changed:
+   ` + "```bash" + `
+   /polaris:detect-risks <service>
+   ` + "```" + `
+
+### Polaris Skills Reference
+
+| Skill | Purpose |
+| ----- | ------- |
+| ` + "`/polaris:detect-risks <service>`" + ` | Full codebase scan, persists risks to register |
+| ` + "`/polaris:risk-check <service>`" + ` | Quick assessment without persisting |
+| ` + "`/polaris:risk-guidance R-XXX`" + ` | Remediation guidance for a specific risk |
+| ` + "`/polaris:control-guidance RC-XXX`" + ` | Implement a specific control |
+| ` + "`/polaris:submit-evidence RC-XXX`" + ` | Submit evidence after implementing a control |
+| ` + "`/polaris:reliability-review`" + ` | Review git diff for reliability issues |
+| ` + "`/polaris:incident-patterns <query>`" + ` | Search historical incident patterns |
+| ` + "`/polaris:sre-context`" + ` | Load full reliability context for session |
+| ` + "`polaris risk show R-XXX`" + ` | See which controls (RC-XXX) map to a risk |
+| ` + "`polaris knowledge search <query>`" + ` | Search knowledge base |
+<!-- polaris-agents-end -->
+`
+
+// ensureAgentsMd appends Polaris-specific sections to the repo's AGENTS.md file.
+// If the file doesn't exist, it creates it. If Polaris content already exists
+// (detected by marker comment), it replaces the existing Polaris section.
+func ensureAgentsMd(gitRoot string, force, yesAll bool) (action string, err error) {
+	agentsPath := filepath.Join(gitRoot, "AGENTS.md")
+
+	existing, readErr := os.ReadFile(agentsPath)
+	fileExists := readErr == nil
+
+	if fileExists {
+		content := string(existing)
+		// Check if Polaris content already exists
+		if strings.Contains(content, polarisAgentsMarker) {
+			if !force {
+				fmt.Println("AGENTS.md already contains Polaris sections.")
+				if !yesAll {
+					var update bool
+					err := huh.NewConfirm().
+						Title("Update Polaris sections in AGENTS.md?").
+						Affirmative("Yes").
+						Negative("No").
+						Value(&update).
+						Run()
+					if err != nil || !update {
+						return "skipped", nil
+					}
+				} else {
+					fmt.Println("Updating Polaris sections (--yes mode)")
+				}
+			}
+			// Replace existing Polaris section
+			startIdx := strings.Index(content, polarisAgentsMarker)
+			endIdx := strings.Index(content, polarisAgentsEndMarker)
+			if startIdx >= 0 && endIdx >= 0 {
+				endIdx += len(polarisAgentsEndMarker)
+				// Consume trailing newline if present
+				if endIdx < len(content) && content[endIdx] == '\n' {
+					endIdx++
+				}
+				newContent := content[:startIdx] + strings.TrimLeft(polarisAgentsContent, "\n") + content[endIdx:]
+				if err := os.WriteFile(agentsPath, []byte(newContent), 0644); err != nil {
+					return "", fmt.Errorf("writing AGENTS.md: %w", err)
+				}
+				return "updated", nil
+			}
+		}
+
+		// File exists but no Polaris content — append
+		if !yesAll {
+			var doAppend bool
+			err := huh.NewConfirm().
+				Title("Append Polaris sections to existing AGENTS.md?").
+				Affirmative("Yes").
+				Negative("No").
+				Value(&doAppend).
+				Run()
+			if err != nil || !doAppend {
+				return "skipped", nil
+			}
+		}
+
+		// Ensure file ends with newline before appending
+		if len(content) > 0 && content[len(content)-1] != '\n' {
+			content += "\n"
+		}
+		newContent := content + polarisAgentsContent
+		if err := os.WriteFile(agentsPath, []byte(newContent), 0644); err != nil {
+			return "", fmt.Errorf("writing AGENTS.md: %w", err)
+		}
+		return "appended", nil
+	}
+
+	// File doesn't exist — create with Polaris content
+	header := "# Agent Instructions\n" + polarisAgentsContent
+	if err := os.WriteFile(agentsPath, []byte(header), 0644); err != nil {
+		return "", fmt.Errorf("creating AGENTS.md: %w", err)
+	}
+	return "created", nil
 }
 
 // wrapText wraps text to a specified width with optional indent
