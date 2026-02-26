@@ -26,10 +26,10 @@ import (
 const (
 	configDir  = ".polaris"
 	configFile = "config.yaml"
-	version    = "0.1.0"
 )
 
-// gitHash is set at build time via -ldflags "-X main.gitHash=..."
+// version and gitHash are set at build time via -ldflags "-X main.version=... -X main.gitHash=..."
+var version = "0.1.0"
 var gitHash = "dev"
 
 // Config holds the CLI configuration
