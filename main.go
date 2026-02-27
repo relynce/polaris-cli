@@ -4221,6 +4221,7 @@ func registerWithClaudeCode(version, installPath string) error {
 		Version      string `json:"version"`
 		InstalledAt  string `json:"installedAt"`
 		LastUpdated  string `json:"lastUpdated"`
+		Enabled      bool   `json:"enabled"`
 		GitCommitSha string `json:"gitCommitSha,omitempty"`
 	}
 
@@ -4250,6 +4251,7 @@ func registerWithClaudeCode(version, installPath string) error {
 		Version:     version,
 		InstalledAt: now,
 		LastUpdated: now,
+		Enabled:     true, // Auto-enable on install
 	}
 
 	// Use key format: plugin@source
