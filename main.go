@@ -4264,7 +4264,88 @@ func registerWithClaudeCode(version, installPath string) error {
 		return err
 	}
 
-	return os.WriteFile(registryFile, data, 0644)
+	if err := os.WriteFile(registryFile, data, 0644); err != nil {
+		return err
+	}
+
+	// Also enable plugin in settings.json
+	return enablePluginInSettings(key)
+}
+
+// enablePluginInSettings enables the plugin in ~/.claude/settings.json
+func enablePluginInSettings(pluginKey string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	settingsFile := filepath.Join(home, ".claude", "settings.json")
+
+	// Load existing settings
+	var settings map[string]interface{}
+	if data, err := os.ReadFile(settingsFile); err == nil {
+		_ = json.Unmarshal(data, &settings)
+	}
+
+	// Initialize if empty
+	if settings == nil {
+		settings = make(map[string]interface{})
+	}
+
+	// Get or create enabledPlugins object
+	enabledPlugins, ok := settings["enabledPlugins"].(map[string]interface{})
+	if !ok {
+		enabledPlugins = make(map[string]interface{})
+		settings["enabledPlugins"] = enabledPlugins
+	}
+
+	// Enable this plugin
+	enabledPlugins[pluginKey] = true
+
+	// Save settings
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(settingsFile, data, 0644)
+}
+
+// disablePluginInSettings disables the plugin in ~/.claude/settings.json
+func disablePluginInSettings(pluginKey string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	settingsFile := filepath.Join(home, ".claude", "settings.json")
+
+	// Load existing settings
+	var settings map[string]interface{}
+	if data, err := os.ReadFile(settingsFile); err == nil {
+		_ = json.Unmarshal(data, &settings)
+	}
+
+	if settings == nil {
+		return nil // Nothing to disable
+	}
+
+	// Get enabledPlugins object
+	enabledPlugins, ok := settings["enabledPlugins"].(map[string]interface{})
+	if !ok {
+		return nil // Nothing to disable
+	}
+
+	// Remove this plugin
+	delete(enabledPlugins, pluginKey)
+
+	// Save settings
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(settingsFile, data, 0644)
 }
 
 // unregisterFromClaudeCode removes polaris from ~/.claude/plugins/installed_plugins.json
@@ -4310,7 +4391,12 @@ func unregisterFromClaudeCode() error {
 		return err
 	}
 
-	return os.WriteFile(registryFile, data, 0644)
+	if err := os.WriteFile(registryFile, data, 0644); err != nil {
+		return err
+	}
+
+	// Also disable plugin in settings.json
+	return disablePluginInSettings(key)
 }
 
 func savePluginInfo(editor, version, location string) error {
