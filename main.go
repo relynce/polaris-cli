@@ -119,6 +119,8 @@ func main() {
 		cmdConfig(os.Args[2:])
 	case "skills":
 		cmdSkills(os.Args[2:])
+	case "agents":
+		cmdAgents(os.Args[2:])
 	case "version":
 		fmt.Printf("polaris version %s (%s)\n", version, gitHash)
 	case "help", "--help", "-h":
@@ -147,6 +149,7 @@ Commands:
   knowledge          Query organizational knowledge base (facts, procedures, patterns)
   evidence           Manage control evidence (submit, list, verify)
   skills             Manage Claude Code skills (update, status)
+  agents             Manage expert agents (update, list, status)
   config show        Show current configuration (API key masked)
   config set <k> <v> Set a configuration value
   version            Show version information
@@ -445,6 +448,47 @@ Commands:
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown skills command: %s\n", args[0])
 		fmt.Fprintln(os.Stderr, "Usage: polaris skills <update|status>")
+		os.Exit(1)
+	}
+}
+
+// cmdAgents handles agents subcommands (update, list, status).
+func cmdAgents(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, `Usage: polaris agents <command>
+
+Commands:
+  update    Download latest agents from server
+  list      List installed agents
+  status    Show installed agents version`)
+		os.Exit(1)
+	}
+
+	switch args[0] {
+	case "update":
+		force := false
+		for _, a := range args[1:] {
+			if a == "--force" || a == "-f" {
+				force = true
+			}
+		}
+		installed, ver, err := downloadAndInstallAgents(force, true)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if !installed {
+			fmt.Fprintln(os.Stderr, "Agents installation failed")
+			os.Exit(1)
+		}
+		_ = ver
+	case "list":
+		listInstalledAgents()
+	case "status":
+		checkInstalledAgents()
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown agents command: %s\n", args[0])
+		fmt.Fprintln(os.Stderr, "Usage: polaris agents <update|list|status>")
 		os.Exit(1)
 	}
 }
@@ -3400,6 +3444,19 @@ type skillFromAPI struct {
 	Checksum string `json:"checksum"`
 }
 
+// agentsAPIResponse is the response from GET /api/v1/agents
+type agentsAPIResponse struct {
+	Version string         `json:"version"`
+	Agents  []agentFromAPI `json:"agents"`
+}
+
+type agentFromAPI struct {
+	Name     string `json:"name"`
+	Filename string `json:"filename"`
+	Content  string `json:"content"`
+	Checksum string `json:"checksum"`
+}
+
 // downloadAndInstallSkills fetches skills from the Polaris API and writes them
 // to ~/.claude/commands/polaris/. Falls back gracefully if skills are already
 // installed locally and the API is unreachable.
@@ -3554,6 +3611,232 @@ func getInstalledSkillsVersion(dir string) string {
 	}
 
 	return ""
+}
+
+// agentsAPIResponse is the response from GET /api/v1/agents
+// agentFromAPI represents a single agent file
+// (types defined above near skillsAPIResponse)
+
+// downloadAndInstallAgents fetches agents from the Polaris API and writes them
+// to ~/.claude/agents/ where Claude Code can find them. Falls back gracefully if
+// agents are already installed locally and the API is unreachable.
+func downloadAndInstallAgents(force, yesAll bool) (installed bool, ver string, err error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false, "", fmt.Errorf("cannot determine home directory: %w", err)
+	}
+
+	targetDir := filepath.Join(home, ".claude", "agents")
+
+	// Load credentials for API call
+	cfg, loadErr := loadConfig()
+	if loadErr != nil || cfg == nil || cfg.APIKey == "" || cfg.APIURL == "" {
+		// No credentials configured — check if agents are already installed
+		if _, statErr := os.Stat(targetDir); statErr == nil {
+			installedVersion := getInstalledAgentsVersion(targetDir)
+			fmt.Printf("Agents: Using locally installed version (%s)\n", installedVersion)
+			fmt.Println("  Run 'polaris login' to enable agent updates from the server.")
+			return true, installedVersion, nil
+		}
+		return false, "", fmt.Errorf("no API credentials configured — run 'polaris login' first")
+	}
+
+	// Fetch agents from API
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, reqErr := http.NewRequest("GET", cfg.APIURL+"/api/v1/agents", nil)
+	if reqErr != nil {
+		return false, "", fmt.Errorf("create request: %w", reqErr)
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+
+	resp, doErr := client.Do(req)
+	if doErr != nil {
+		// Network error — fall back to local if available
+		if _, statErr := os.Stat(targetDir); statErr == nil {
+			installedVersion := getInstalledAgentsVersion(targetDir)
+			fmt.Printf("Agents: Could not reach server, using local version (%s)\n", installedVersion)
+			return true, installedVersion, nil
+		}
+		return false, "", fmt.Errorf("cannot reach Polaris API: %w", doErr)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		// Fall back to local if available
+		if _, statErr := os.Stat(targetDir); statErr == nil {
+			installedVersion := getInstalledAgentsVersion(targetDir)
+			fmt.Printf("Agents: Server returned %d, using local version (%s)\n", resp.StatusCode, installedVersion)
+			return true, installedVersion, nil
+		}
+		return false, "", fmt.Errorf("fetch agents failed (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var apiResp agentsAPIResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return false, "", fmt.Errorf("decode agents response: %w", err)
+	}
+
+	serverVersion := apiResp.Version
+
+	// Check if agents already exist and compare versions
+	if info, statErr := os.Stat(targetDir); statErr == nil && info.IsDir() {
+		installedVersion := getInstalledAgentsVersion(targetDir)
+
+		if installedVersion == serverVersion && !force {
+			fmt.Printf("Agents: Up to date (v%s)\n", serverVersion)
+			return true, serverVersion, nil
+		}
+
+		if installedVersion != "" && installedVersion != serverVersion && !force {
+			if yesAll {
+				// Auto-upgrade
+			} else {
+				var upgrade bool
+				upgradeErr := huh.NewConfirm().
+					Title(fmt.Sprintf("Upgrade agents from v%s to v%s?", installedVersion, serverVersion)).
+					Affirmative("Yes").
+					Negative("No").
+					Value(&upgrade).
+					Run()
+				if upgradeErr != nil || !upgrade {
+					fmt.Println("Agents: Keeping existing version")
+					return true, installedVersion, nil
+				}
+			}
+		}
+	}
+
+	// Create target directory
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return false, "", fmt.Errorf("cannot create agents directory: %w", err)
+	}
+
+	// Write each agent file
+	var agentNames []string
+	for _, agent := range apiResp.Agents {
+		// Prepend version header
+		versionHeader := fmt.Sprintf("<!-- polaris-version: %s -->\n", serverVersion)
+		content := versionHeader + agent.Content
+
+		targetPath := filepath.Join(targetDir, agent.Filename)
+		if err := os.WriteFile(targetPath, []byte(content), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not write %s: %v\n", agent.Filename, err)
+			continue
+		}
+
+		agentNames = append(agentNames, agent.Name)
+	}
+
+	fmt.Printf("Agents: Installed %d agents (v%s) to %s\n", len(agentNames), serverVersion, targetDir)
+	if len(agentNames) > 0 {
+		fmt.Printf("  Available: %s\n", strings.Join(agentNames, ", "))
+	}
+
+	return true, serverVersion, nil
+}
+
+// getInstalledAgentsVersion reads the version from an installed agent file
+func getInstalledAgentsVersion(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		firstLine := strings.SplitN(string(data), "\n", 2)[0]
+		if strings.Contains(firstLine, "polaris-version:") {
+			parts := strings.Split(firstLine, "polaris-version:")
+			if len(parts) == 2 {
+				ver := strings.TrimSpace(parts[1])
+				ver = strings.TrimSuffix(ver, "-->")
+				ver = strings.TrimSpace(ver)
+				return ver
+			}
+		}
+		break // Only check the first .md file
+	}
+
+	return ""
+}
+
+// checkInstalledAgents checks if agents are installed and shows version
+func checkInstalledAgents() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Println("  Could not determine home directory")
+		return
+	}
+	targetDir := filepath.Join(home, ".claude", "agents")
+
+	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
+		fmt.Println("  Not installed (run 'polaris agents update' to install)")
+		return
+	}
+
+	installedVersion := getInstalledAgentsVersion(targetDir)
+
+	if installedVersion == "" {
+		fmt.Println("  Installed (version unknown)")
+		fmt.Println("  Run 'polaris agents update' to update")
+	} else {
+		fmt.Printf("  Installed (%s)\n", installedVersion)
+		fmt.Println("  Run 'polaris agents update' to update from server")
+	}
+}
+
+// listInstalledAgents lists all installed agents with their names
+func listInstalledAgents() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Could not determine home directory: %v\n", err)
+		os.Exit(1)
+	}
+	targetDir := filepath.Join(home, ".claude", "agents")
+
+	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
+		fmt.Println("No agents installed. Run 'polaris agents update' to install.")
+		return
+	}
+
+	entries, err := os.ReadDir(targetDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading agents directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	var agents []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		// Remove .md extension to get agent name
+		name := strings.TrimSuffix(entry.Name(), ".md")
+		agents = append(agents, name)
+	}
+
+	if len(agents) == 0 {
+		fmt.Println("No agents found in", targetDir)
+		return
+	}
+
+	installedVersion := getInstalledAgentsVersion(targetDir)
+	if installedVersion != "" {
+		fmt.Printf("Installed agents (v%s):\n", installedVersion)
+	} else {
+		fmt.Println("Installed agents:")
+	}
+
+	for _, agent := range agents {
+		fmt.Printf("  - %s\n", agent)
+	}
 }
 
 // printInitSummary prints the final summary after initialization
