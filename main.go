@@ -3959,8 +3959,37 @@ func getPluginDir(editor, version string) (string, error) {
 }
 
 // installPlugin downloads and installs the Polaris plugin for the specified editor
+// cleanupOldClaudeInstallations removes old Polaris installations from Claude Code directories
+func cleanupOldClaudeInstallations() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("get home directory: %w", err)
+	}
+
+	// Remove old commands from ~/.claude/commands/polaris/
+	oldCommandsDir := filepath.Join(home, ".claude", "commands", "polaris")
+	if _, err := os.Stat(oldCommandsDir); err == nil {
+		fmt.Printf("Removing old Polaris commands from %s...\n", oldCommandsDir)
+		if err := os.RemoveAll(oldCommandsDir); err != nil {
+			return fmt.Errorf("remove old commands: %w", err)
+		}
+		fmt.Println("✓ Removed old commands")
+	}
+
+	// Note: We do NOT touch ~/.claude/agents/ as those are community agents, not Polaris-specific
+
+	return nil
+}
+
 func installPlugin(editor string) error {
 	fmt.Printf("Installing Polaris plugin for %s...\n", editor)
+
+	// Clean up old installations first (if applicable)
+	if editor == "claude" {
+		if err := cleanupOldClaudeInstallations(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not clean up old installations: %v\n", err)
+		}
+	}
 
 	// Load credentials
 	cfg, err := loadConfig()
