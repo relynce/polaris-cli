@@ -397,10 +397,6 @@ func cmdStatus() {
 	}
 	fmt.Println("Status: Connected")
 
-	// Check installed skills (legacy)
-	fmt.Println("\nSkills:")
-	checkInstalledSkills()
-
 	// Check installed plugins with version comparison
 	fmt.Println("\nPlugins:")
 	serverVersion := fetchServerPluginVersion(cfg)
