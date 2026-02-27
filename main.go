@@ -397,9 +397,63 @@ func cmdStatus() {
 	}
 	fmt.Println("Status: Connected")
 
-	// Check installed skills
+	// Check installed skills (legacy)
 	fmt.Println("\nSkills:")
 	checkInstalledSkills()
+
+	// Check installed plugins with version comparison
+	fmt.Println("\nPlugins:")
+	serverVersion := fetchServerPluginVersion(cfg)
+	plugins, err := getInstalledPlugins()
+	if err != nil || len(plugins) == 0 {
+		fmt.Println("  No plugins installed")
+		fmt.Println("  Run 'polaris plugin install claude' to install")
+	} else {
+		for _, p := range plugins {
+			if serverVersion != "" && p.Version != serverVersion {
+				fmt.Printf("  %s: v%s (update available: v%s)\n", p.Editor, p.Version, serverVersion)
+				fmt.Printf("    Run 'polaris plugin update %s' to upgrade\n", p.Editor)
+			} else if serverVersion != "" {
+				fmt.Printf("  %s: v%s (up to date)\n", p.Editor, p.Version)
+			} else {
+				fmt.Printf("  %s: v%s\n", p.Editor, p.Version)
+			}
+		}
+	}
+}
+
+// fetchServerPluginVersion queries the API for the latest plugin version.
+// Returns empty string if the server is unreachable or returns an error.
+func fetchServerPluginVersion(cfg *Config) string {
+	if cfg == nil || cfg.APIKey == "" || cfg.APIURL == "" {
+		return ""
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest("GET", cfg.APIURL+"/api/v1/plugin", nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return ""
+	}
+
+	var result struct {
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return ""
+	}
+
+	return result.Version
 }
 
 // checkInstalledSkills reports the installed skills version.
@@ -4266,12 +4320,30 @@ func listInstalledPlugins() {
 		return
 	}
 
+	// Check server version for upgrade indicator
+	cfg, _ := loadConfig()
+	serverVersion := fetchServerPluginVersion(cfg)
+
 	fmt.Println("Installed Polaris plugins:")
 	for _, p := range plugins {
 		fmt.Printf("\n  %s\n", p.Editor)
 		fmt.Printf("    Version:   %s\n", p.Version)
+		if serverVersion != "" && p.Version != serverVersion {
+			fmt.Printf("    Latest:    %s (update available)\n", serverVersion)
+		} else if serverVersion != "" {
+			fmt.Printf("    Latest:    %s (up to date)\n", serverVersion)
+		}
 		fmt.Printf("    Installed: %s\n", p.Installed)
 		fmt.Printf("    Location:  %s\n", p.Location)
+	}
+
+	if serverVersion != "" {
+		for _, p := range plugins {
+			if p.Version != serverVersion {
+				fmt.Printf("\nRun 'polaris plugin update' to upgrade.\n")
+				break
+			}
+		}
 	}
 }
 
