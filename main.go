@@ -4077,6 +4077,15 @@ func installPlugin(editor string) error {
 		fmt.Fprintf(os.Stderr, "Warning: could not save plugin metadata: %v\n", err)
 	}
 
+	// Register with Claude Code (if applicable)
+	if editor == "claude" {
+		if err := registerWithClaudeCode(version, targetDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not register with Claude Code: %v\n", err)
+		} else {
+			fmt.Println("✓ Registered with Claude Code")
+		}
+	}
+
 	// Print next steps based on editor
 	printPostInstallInstructions(editor, targetDir)
 
@@ -4179,6 +4188,13 @@ func removePlugin(editor string) error {
 		return fmt.Errorf("remove plugin directory: %w", err)
 	}
 
+	// Unregister from Claude Code (if applicable)
+	if editor == "claude" {
+		if err := unregisterFromClaudeCode(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not unregister from Claude Code: %v\n", err)
+		}
+	}
+
 	// Remove metadata
 	metadataFile := filepath.Join(home, ".polaris", "plugins.json")
 	_ = removePluginFromMetadata(editor, metadataFile)
@@ -4188,6 +4204,112 @@ func removePlugin(editor string) error {
 }
 
 // Helper functions
+
+// registerWithClaudeCode updates ~/.claude/plugins/installed_plugins.json
+func registerWithClaudeCode(version, installPath string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	registryFile := filepath.Join(home, ".claude", "plugins", "installed_plugins.json")
+
+	// Load existing registry
+	type pluginEntry struct {
+		Scope        string `json:"scope"`
+		InstallPath  string `json:"installPath"`
+		Version      string `json:"version"`
+		InstalledAt  string `json:"installedAt"`
+		LastUpdated  string `json:"lastUpdated"`
+		GitCommitSha string `json:"gitCommitSha,omitempty"`
+	}
+
+	type registry struct {
+		Version int                          `json:"version"`
+		Plugins map[string][]pluginEntry `json:"plugins"`
+	}
+
+	var reg registry
+	if data, err := os.ReadFile(registryFile); err == nil {
+		_ = json.Unmarshal(data, &reg)
+	}
+
+	// Initialize if empty
+	if reg.Version == 0 {
+		reg.Version = 2
+	}
+	if reg.Plugins == nil {
+		reg.Plugins = make(map[string][]pluginEntry)
+	}
+
+	// Add or update polaris plugin entry
+	now := time.Now().Format(time.RFC3339)
+	entry := pluginEntry{
+		Scope:       "user",
+		InstallPath: installPath,
+		Version:     version,
+		InstalledAt: now,
+		LastUpdated: now,
+	}
+
+	// Use key format: plugin@source
+	key := "polaris@polaris-api"
+	reg.Plugins[key] = []pluginEntry{entry}
+
+	// Save registry
+	data, err := json.MarshalIndent(reg, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(registryFile, data, 0644)
+}
+
+// unregisterFromClaudeCode removes polaris from ~/.claude/plugins/installed_plugins.json
+func unregisterFromClaudeCode() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	registryFile := filepath.Join(home, ".claude", "plugins", "installed_plugins.json")
+
+	// Load existing registry
+	type pluginEntry struct {
+		Scope        string `json:"scope"`
+		InstallPath  string `json:"installPath"`
+		Version      string `json:"version"`
+		InstalledAt  string `json:"installedAt"`
+		LastUpdated  string `json:"lastUpdated"`
+		GitCommitSha string `json:"gitCommitSha,omitempty"`
+	}
+
+	type registry struct {
+		Version int                          `json:"version"`
+		Plugins map[string][]pluginEntry `json:"plugins"`
+	}
+
+	var reg registry
+	if data, err := os.ReadFile(registryFile); err == nil {
+		_ = json.Unmarshal(data, &reg)
+	}
+
+	if reg.Plugins == nil {
+		return nil // Nothing to remove
+	}
+
+	// Remove polaris plugin entry
+	key := "polaris@polaris-api"
+	delete(reg.Plugins, key)
+
+	// Save registry
+	data, err := json.MarshalIndent(reg, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(registryFile, data, 0644)
+}
 
 func savePluginInfo(editor, version, location string) error {
 	home, err := os.UserHomeDir()
