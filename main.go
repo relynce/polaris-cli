@@ -3981,78 +3981,8 @@ func cleanupOldClaudeInstallations() error {
 	return nil
 }
 
-func installPlugin(editor string) error {
-	fmt.Printf("Installing Polaris plugin for %s...\n", editor)
-
-	// Clean up old installations first (if applicable)
-	if editor == "claude" {
-		if err := cleanupOldClaudeInstallations(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not clean up old installations: %v\n", err)
-		}
-	}
-
-	// Load credentials
-	cfg, err := loadConfig()
-	if err != nil || cfg == nil || cfg.APIKey == "" || cfg.APIURL == "" {
-		return fmt.Errorf("no API credentials configured — run 'polaris login' first")
-	}
-
-	// Download plugin tarball
-	client := &http.Client{Timeout: 60 * time.Second}
-	downloadURL := cfg.APIURL + "/api/v1/plugin/download"
-
-	req, err := http.NewRequest("GET", downloadURL, nil)
-	if err != nil {
-		return fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-
-	fmt.Printf("Downloading plugin from %s...\n", downloadURL)
-	resp, err := client.Do(req)
-	if err != nil {
-		return fmt.Errorf("download plugin: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("download failed (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
-	// Get version and checksum from headers
-	version := strings.TrimPrefix(filepath.Base(resp.Header.Get("Content-Disposition")), "attachment; filename=polaris-plugin-")
-	version = strings.TrimSuffix(version, ".tar.gz")
-	checksum := resp.Header.Get("X-Checksum")
-
-	// Get target directory (now that we have the version)
-	targetDir, err := getPluginDir(editor, version)
-	if err != nil {
-		return err
-	}
-
-	// Read tarball
-	tarballData, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("read tarball: %w", err)
-	}
-
-	// Verify checksum if provided
-	if checksum != "" {
-		hash := sha256.Sum256(tarballData)
-		actualChecksum := "sha256:" + hex.EncodeToString(hash[:])
-		if actualChecksum != checksum {
-			return fmt.Errorf("checksum mismatch: expected %s, got %s", checksum, actualChecksum)
-		}
-		fmt.Println("✓ Checksum verified")
-	}
-
-	// Create target directory
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
-		return fmt.Errorf("create plugin directory: %w", err)
-	}
-
-	// Extract tarball
-	fmt.Printf("Extracting to %s...\n", targetDir)
+// extractTarball extracts a tar.gz tarball to the target directory
+func extractTarball(tarballData []byte, targetDir string) error {
 	gzReader, err := gzip.NewReader(bytes.NewReader(tarballData))
 	if err != nil {
 		return fmt.Errorf("create gzip reader: %w", err)
@@ -4100,22 +4030,194 @@ func installPlugin(editor string) error {
 	}
 
 	fmt.Printf("✓ Extracted %d files\n", fileCount)
+	return nil
+}
+
+// installClaudePlugin installs the plugin using Claude Code's local marketplace mechanism
+func installClaudePlugin(version string, tarballData []byte) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("get home directory: %w", err)
+	}
+
+	// Create local marketplace structure at ~/.polaris/marketplace
+	marketplaceDir := filepath.Join(home, ".polaris", "marketplace")
+	pluginDir := filepath.Join(marketplaceDir, "plugins", "polaris")
+
+	// Clean up existing installation
+	if err := os.RemoveAll(marketplaceDir); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("clean up old marketplace: %w", err)
+	}
+
+	// Create plugin directory
+	if err := os.MkdirAll(pluginDir, 0755); err != nil {
+		return fmt.Errorf("create plugin directory: %w", err)
+	}
+
+	// Extract plugin to local marketplace
+	fmt.Printf("Setting up local marketplace at %s...\n", marketplaceDir)
+	if err := extractTarball(tarballData, pluginDir); err != nil {
+		return fmt.Errorf("extract plugin: %w", err)
+	}
+
+	// Create marketplace.json
+	marketplaceJSON := fmt.Sprintf(`{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "polaris-local",
+  "description": "Polaris plugin for reliability risk analysis",
+  "owner": {
+    "name": "Relynce",
+    "email": "team@relynce.ai"
+  },
+  "plugins": [
+    {
+      "name": "polaris",
+      "version": "%s",
+      "description": "Reliability risk analysis and incident prevention for engineering teams",
+      "author": {
+        "name": "Relynce",
+        "email": "team@relynce.ai"
+      },
+      "source": "./plugins/polaris",
+      "category": "development",
+      "homepage": "https://docs.relynce.ai/polaris"
+    }
+  ]
+}`, version)
+
+	marketplaceManifestDir := filepath.Join(marketplaceDir, ".claude-plugin")
+	if err := os.MkdirAll(marketplaceManifestDir, 0755); err != nil {
+		return fmt.Errorf("create marketplace manifest directory: %w", err)
+	}
+
+	marketplaceManifestPath := filepath.Join(marketplaceManifestDir, "marketplace.json")
+	if err := os.WriteFile(marketplaceManifestPath, []byte(marketplaceJSON), 0644); err != nil {
+		return fmt.Errorf("write marketplace manifest: %w", err)
+	}
+
+	fmt.Println("✓ Created local marketplace")
+
+	// Remove old marketplace if it exists
+	fmt.Println("Removing old Polaris marketplace (if exists)...")
+	cmd := exec.Command("claude", "plugin", "marketplace", "remove", "polaris-local")
+	cmd.Run() // Ignore error - marketplace might not exist
+
+	// Add marketplace using claude CLI
+	fmt.Println("Registering marketplace with Claude Code...")
+	cmd = exec.Command("claude", "plugin", "marketplace", "add", marketplaceDir)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("add marketplace: %w\nOutput: %s", err, string(output))
+	}
+	fmt.Println("✓ Marketplace registered")
+
+	// Install plugin using claude CLI
+	fmt.Println("Installing plugin...")
+	cmd = exec.Command("claude", "plugin", "install", "polaris@polaris-local")
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("install plugin: %w\nOutput: %s", err, string(output))
+	}
+	fmt.Println("✓ Plugin installed")
+
+	// Save metadata for polaris CLI tracking
+	if err := savePluginInfo("claude", version, pluginDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not save plugin metadata: %v\n", err)
+	}
+
+	fmt.Printf("\n✅ Polaris plugin successfully installed!\n")
+	fmt.Printf("Commands are now available: /polaris:detect-risks, /polaris:analyze-risks, etc.\n")
+	fmt.Printf("\nRestart Claude Code to ensure all commands are loaded.\n")
+
+	return nil
+}
+
+func installPlugin(editor string) error {
+	fmt.Printf("Installing Polaris plugin for %s...\n", editor)
+
+	// Clean up old installations first (if applicable)
+	if editor == "claude" {
+		if err := cleanupOldClaudeInstallations(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not clean up old installations: %v\n", err)
+		}
+	}
+
+	// Load credentials
+	cfg, err := loadConfig()
+	if err != nil || cfg == nil || cfg.APIKey == "" || cfg.APIURL == "" {
+		return fmt.Errorf("no API credentials configured — run 'polaris login' first")
+	}
+
+	// Download plugin tarball
+	client := &http.Client{Timeout: 60 * time.Second}
+	downloadURL := cfg.APIURL + "/api/v1/plugin/download"
+
+	req, err := http.NewRequest("GET", downloadURL, nil)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+
+	fmt.Printf("Downloading plugin from %s...\n", downloadURL)
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("download plugin: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("download failed (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	// Get version and checksum from headers
+	version := strings.TrimPrefix(filepath.Base(resp.Header.Get("Content-Disposition")), "attachment; filename=polaris-plugin-")
+	version = strings.TrimSuffix(version, ".tar.gz")
+	checksum := resp.Header.Get("X-Checksum")
+
+	// Read tarball
+	tarballData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read tarball: %w", err)
+	}
+
+	// Verify checksum if provided
+	if checksum != "" {
+		hash := sha256.Sum256(tarballData)
+		actualChecksum := "sha256:" + hex.EncodeToString(hash[:])
+		if actualChecksum != checksum {
+			return fmt.Errorf("checksum mismatch: expected %s, got %s", checksum, actualChecksum)
+		}
+		fmt.Println("✓ Checksum verified")
+	}
+
+	// For Claude Code, use local marketplace approach
+	if editor == "claude" {
+		return installClaudePlugin(version, tarballData)
+	}
+
+	// For other editors, use the old direct installation approach
+	targetDir, err := getPluginDir(editor, version)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("create plugin directory: %w", err)
+	}
+
+	// Extract tarball
+	fmt.Printf("Extracting to %s...\n", targetDir)
+	if err := extractTarball(tarballData, targetDir); err != nil {
+		return err
+	}
 
 	// Save plugin metadata
 	if err := savePluginInfo(editor, version, targetDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not save plugin metadata: %v\n", err)
 	}
 
-	// Register with Claude Code (if applicable)
-	if editor == "claude" {
-		if err := registerWithClaudeCode(version, targetDir); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not register with Claude Code: %v\n", err)
-		} else {
-			fmt.Println("✓ Registered with Claude Code")
-		}
-	}
-
-	// Print next steps based on editor
+	// Print next steps
 	printPostInstallInstructions(editor, targetDir)
 
 	return nil
@@ -4180,27 +4282,6 @@ func removePlugin(editor string) error {
 		return fmt.Errorf("cannot determine home directory: %w", err)
 	}
 
-	// Remove all versions by removing the plugin parent directory
-	var pluginParentDir string
-	switch editor {
-	case "claude":
-		pluginParentDir = filepath.Join(home, ".claude", "plugins", "cache", "polaris-api", "polaris")
-	case "gemini":
-		pluginParentDir = filepath.Join(home, ".gemini", "plugins", "cache", "polaris-api", "polaris")
-	case "windsurf":
-		pluginParentDir = filepath.Join(home, ".windsurf", "plugins", "cache", "polaris-api", "polaris")
-	case "cursor":
-		pluginParentDir = filepath.Join(home, ".cursor", "plugins", "cache", "polaris-api", "polaris")
-	default:
-		return fmt.Errorf("unsupported editor: %s", editor)
-	}
-
-	// Check if installed
-	if _, err := os.Stat(pluginParentDir); os.IsNotExist(err) {
-		fmt.Printf("Plugin for %s is not installed.\n", editor)
-		return nil
-	}
-
 	// Confirm removal
 	fmt.Printf("Remove Polaris plugin for %s? [y/N] ", editor)
 	reader := bufio.NewReader(os.Stdin)
@@ -4212,15 +4293,54 @@ func removePlugin(editor string) error {
 		return nil
 	}
 
-	// Remove directory (all versions)
-	if err := os.RemoveAll(pluginParentDir); err != nil {
-		return fmt.Errorf("remove plugin directory: %w", err)
-	}
-
-	// Unregister from Claude Code (if applicable)
+	// For Claude Code, use official CLI to uninstall
 	if editor == "claude" {
-		if err := unregisterFromClaudeCode(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not unregister from Claude Code: %v\n", err)
+		fmt.Println("Uninstalling plugin via Claude Code CLI...")
+		cmd := exec.Command("claude", "plugin", "uninstall", "polaris@polaris-local")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			// Plugin might not be installed via marketplace, try manual cleanup
+			fmt.Fprintf(os.Stderr, "Warning: claude plugin uninstall failed: %v\n", err)
+			fmt.Println("Attempting manual cleanup...")
+		} else {
+			fmt.Println(string(output))
+		}
+
+		// Remove local marketplace
+		marketplaceDir := filepath.Join(home, ".polaris", "marketplace")
+		if err := os.RemoveAll(marketplaceDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not remove marketplace: %v\n", err)
+		} else {
+			fmt.Println("✓ Removed local marketplace")
+		}
+
+		// Remove marketplace registration
+		fmt.Println("Removing marketplace registration...")
+		cmd = exec.Command("claude", "plugin", "marketplace", "remove", "polaris-local")
+		cmd.Run() // Ignore error - marketplace might not exist
+	} else {
+		// For other editors, use direct removal
+		var pluginParentDir string
+		switch editor {
+		case "gemini":
+			pluginParentDir = filepath.Join(home, ".gemini", "plugins", "cache", "polaris-api", "polaris")
+		case "windsurf":
+			pluginParentDir = filepath.Join(home, ".windsurf", "plugins", "cache", "polaris-api", "polaris")
+		case "cursor":
+			pluginParentDir = filepath.Join(home, ".cursor", "plugins", "cache", "polaris-api", "polaris")
+		default:
+			return fmt.Errorf("unsupported editor: %s", editor)
+		}
+
+		// Check if installed
+		if _, err := os.Stat(pluginParentDir); os.IsNotExist(err) {
+			fmt.Printf("Plugin for %s is not installed.\n", editor)
+			return nil
+		}
+
+		// Remove directory
+		if err := os.RemoveAll(pluginParentDir); err != nil {
+			return fmt.Errorf("remove plugin directory: %w", err)
 		}
 	}
 
@@ -4228,7 +4348,7 @@ func removePlugin(editor string) error {
 	metadataFile := filepath.Join(home, ".polaris", "plugins.json")
 	_ = removePluginFromMetadata(editor, metadataFile)
 
-	fmt.Printf("✓ Removed %s plugin (all versions)\n", editor)
+	fmt.Printf("✓ Removed %s plugin\n", editor)
 	return nil
 }
 
