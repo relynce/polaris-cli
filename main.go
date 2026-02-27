@@ -33,7 +33,7 @@ const (
 )
 
 // version and gitHash are set at build time via -ldflags "-X main.version=... -X main.gitHash=..."
-var version = "0.1.0"
+var version = "source-build"
 var gitHash = "dev"
 
 // Config holds the CLI configuration
@@ -532,7 +532,7 @@ Examples:
 // cmdAgents handles agents subcommands (update, list, status).
 // DEPRECATED: Use 'polaris plugin install claude' instead.
 func cmdAgents(args []string) {
-	fmt.Fprintln(os.Stderr, "Warning: 'polaris agents' is deprecated. Use 'polaris plugin install claude' instead.")
+	fmt.Fprintln(os.Stderr, "⚠️  Warning: 'polaris agents' is deprecated. Use 'polaris plugin install claude' instead.")
 	fmt.Fprintln(os.Stderr, "")
 
 	if len(args) == 0 {
@@ -3933,7 +3933,8 @@ type pluginInfo struct {
 }
 
 // getPluginDir returns the installation directory for a given editor's plugin
-func getPluginDir(editor string) (string, error) {
+// Returns path in format: ~/.claude/plugins/cache/polaris-api/polaris/<version>/
+func getPluginDir(editor, version string) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)
@@ -3941,18 +3942,17 @@ func getPluginDir(editor string) (string, error) {
 
 	switch editor {
 	case "claude":
-		// Claude Code expects plugins in ~/.claude/plugins/ or uses --plugin-dir
-		// For Polaris, we'll extract to ~/.claude/plugins/polaris/
-		return filepath.Join(home, ".claude", "plugins", "polaris"), nil
+		// Claude Code plugin cache format: ~/.claude/plugins/cache/<source>/<plugin>/<version>/
+		return filepath.Join(home, ".claude", "plugins", "cache", "polaris-api", "polaris", version), nil
 	case "gemini":
 		// Future: Gemini Code plugin location
-		return filepath.Join(home, ".gemini", "plugins", "polaris"), nil
+		return filepath.Join(home, ".gemini", "plugins", "cache", "polaris-api", "polaris", version), nil
 	case "windsurf":
 		// Future: Windsurf plugin location
-		return filepath.Join(home, ".windsurf", "plugins", "polaris"), nil
+		return filepath.Join(home, ".windsurf", "plugins", "cache", "polaris-api", "polaris", version), nil
 	case "cursor":
 		// Future: Cursor plugin location
-		return filepath.Join(home, ".cursor", "plugins", "polaris"), nil
+		return filepath.Join(home, ".cursor", "plugins", "cache", "polaris-api", "polaris", version), nil
 	default:
 		return "", fmt.Errorf("unsupported editor: %s (available: claude, gemini, windsurf, cursor)", editor)
 	}
@@ -3961,12 +3961,6 @@ func getPluginDir(editor string) (string, error) {
 // installPlugin downloads and installs the Polaris plugin for the specified editor
 func installPlugin(editor string) error {
 	fmt.Printf("Installing Polaris plugin for %s...\n", editor)
-
-	// Get target directory
-	targetDir, err := getPluginDir(editor)
-	if err != nil {
-		return err
-	}
 
 	// Load credentials
 	cfg, err := loadConfig()
@@ -4000,6 +3994,12 @@ func installPlugin(editor string) error {
 	version := strings.TrimPrefix(filepath.Base(resp.Header.Get("Content-Disposition")), "attachment; filename=polaris-plugin-")
 	version = strings.TrimSuffix(version, ".tar.gz")
 	checksum := resp.Header.Get("X-Checksum")
+
+	// Get target directory (now that we have the version)
+	targetDir, err := getPluginDir(editor, version)
+	if err != nil {
+		return err
+	}
 
 	// Read tarball
 	tarballData, err := io.ReadAll(resp.Body)
@@ -4135,15 +4135,30 @@ func listInstalledPlugins() {
 	}
 }
 
-// removePlugin removes an installed plugin
+// removePlugin removes an installed plugin (all versions)
 func removePlugin(editor string) error {
-	targetDir, err := getPluginDir(editor)
+	home, err := os.UserHomeDir()
 	if err != nil {
-		return err
+		return fmt.Errorf("cannot determine home directory: %w", err)
+	}
+
+	// Remove all versions by removing the plugin parent directory
+	var pluginParentDir string
+	switch editor {
+	case "claude":
+		pluginParentDir = filepath.Join(home, ".claude", "plugins", "cache", "polaris-api", "polaris")
+	case "gemini":
+		pluginParentDir = filepath.Join(home, ".gemini", "plugins", "cache", "polaris-api", "polaris")
+	case "windsurf":
+		pluginParentDir = filepath.Join(home, ".windsurf", "plugins", "cache", "polaris-api", "polaris")
+	case "cursor":
+		pluginParentDir = filepath.Join(home, ".cursor", "plugins", "cache", "polaris-api", "polaris")
+	default:
+		return fmt.Errorf("unsupported editor: %s", editor)
 	}
 
 	// Check if installed
-	if _, err := os.Stat(targetDir); os.IsNotExist(err) {
+	if _, err := os.Stat(pluginParentDir); os.IsNotExist(err) {
 		fmt.Printf("Plugin for %s is not installed.\n", editor)
 		return nil
 	}
@@ -4159,17 +4174,16 @@ func removePlugin(editor string) error {
 		return nil
 	}
 
-	// Remove directory
-	if err := os.RemoveAll(targetDir); err != nil {
+	// Remove directory (all versions)
+	if err := os.RemoveAll(pluginParentDir); err != nil {
 		return fmt.Errorf("remove plugin directory: %w", err)
 	}
 
 	// Remove metadata
-	home, _ := os.UserHomeDir()
 	metadataFile := filepath.Join(home, ".polaris", "plugins.json")
 	_ = removePluginFromMetadata(editor, metadataFile)
 
-	fmt.Printf("✓ Removed %s plugin\n", editor)
+	fmt.Printf("✓ Removed %s plugin (all versions)\n", editor)
 	return nil
 }
 
