@@ -2814,13 +2814,13 @@ Usage:
 
 Options:
   --project <name>    Set project name (default: from git remote or directory name)
-  --skip-skills       Skip installing Claude Code skills
-  --force             Overwrite existing config and skills without prompting
+  --skip-plugin       Skip installing the Polaris plugin for Claude Code
+  --force             Overwrite existing config and plugin without prompting
   -y, --yes           Accept all defaults non-interactively
 
 What it does:
   1. Creates .polaris.yaml with project name and detected components
-  2. Installs Claude Code skills to ~/.claude/commands/polaris/
+  2. Installs the Polaris plugin for Claude Code (if available)
   3. Adds Polaris sections to AGENTS.md (creates or appends)
   4. Checks if API credentials are configured
 
@@ -2831,10 +2831,16 @@ Examples:
   polaris init --force                 Overwrite existing config`)
 }
 
+// isClaudeCodeAvailable checks if the claude CLI is on the PATH.
+func isClaudeCodeAvailable() bool {
+	_, err := exec.LookPath("claude")
+	return err == nil
+}
+
 // cmdInit initializes Polaris for a repository
 func cmdInit(args []string) {
 	var projectName string
-	var skipSkills bool
+	var skipPlugin bool
 	var force bool
 	var yesAll bool
 
@@ -2843,8 +2849,8 @@ func cmdInit(args []string) {
 		case "help", "--help", "-h":
 			printInitUsage()
 			return
-		case "--skip-skills":
-			skipSkills = true
+		case "--skip-plugin", "--skip-skills":
+			skipPlugin = true
 		case "--force":
 			force = true
 		case "-y", "--yes":
@@ -2919,14 +2925,85 @@ func cmdInit(args []string) {
 	}
 	fmt.Println()
 
-	// Step 3: Install skills
-	skillsInstalled := false
-	skillsVersion := ""
-	if !skipSkills {
-		var err error
-		skillsInstalled, skillsVersion, err = downloadAndInstallSkills(force, yesAll)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not install skills: %v\n", err)
+	// Step 3: Install plugin
+	pluginInstalled := false
+	pluginVersion := ""
+	if !skipPlugin {
+		plugins, _ := getInstalledPlugins()
+		var existing *pluginInfo
+		for i := range plugins {
+			if plugins[i].Editor == "claude" {
+				existing = &plugins[i]
+				break
+			}
+		}
+
+		if existing != nil {
+			// Plugin already installed — check for updates
+			loginCfgForPlugin, _ := loadConfig()
+			serverVersion := fetchServerPluginVersion(loginCfgForPlugin)
+			if serverVersion != "" && serverVersion != existing.Version {
+				doUpdate := force || yesAll
+				if !doUpdate {
+					err := huh.NewConfirm().
+						Title(fmt.Sprintf("Update Polaris plugin? (v%s → v%s)", existing.Version, serverVersion)).
+						Affirmative("Yes").
+						Negative("No").
+						Value(&doUpdate).
+						Run()
+					if err != nil {
+						doUpdate = false
+					}
+				}
+				if doUpdate {
+					if err := installPlugin("claude"); err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: could not update plugin: %v\n", err)
+					} else {
+						pluginInstalled = true
+						pluginVersion = serverVersion
+					}
+				} else {
+					pluginInstalled = true
+					pluginVersion = existing.Version
+					fmt.Printf("Plugin: Keeping v%s\n", existing.Version)
+				}
+			} else {
+				pluginInstalled = true
+				pluginVersion = existing.Version
+				fmt.Printf("Plugin: Up to date (v%s)\n", existing.Version)
+			}
+		} else if isClaudeCodeAvailable() {
+			// Claude Code available but plugin not installed
+			doInstall := yesAll
+			if !yesAll {
+				err := huh.NewConfirm().
+					Title("Install Polaris plugin for Claude Code?").
+					Affirmative("Yes").
+					Negative("No").
+					Value(&doInstall).
+					Run()
+				if err != nil {
+					doInstall = false
+				}
+			}
+			if doInstall {
+				if err := installPlugin("claude"); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: could not install plugin: %v\n", err)
+				} else {
+					pluginInstalled = true
+					// Read back the version from metadata
+					updatedPlugins, _ := getInstalledPlugins()
+					for _, p := range updatedPlugins {
+						if p.Editor == "claude" {
+							pluginVersion = p.Version
+							break
+						}
+					}
+				}
+			}
+		} else {
+			fmt.Println("Plugin: Skipped (Claude Code not detected)")
+			fmt.Println("  Install Claude Code, then run: polaris plugin install claude")
 		}
 		fmt.Println()
 	}
@@ -2966,7 +3043,7 @@ func cmdInit(args []string) {
 	fmt.Println()
 
 	// Step 6: Print summary
-	printInitSummary(cfg, skillsInstalled, skillsVersion, credentialsConfigured, agentsMdAction)
+	printInitSummary(cfg, pluginInstalled, pluginVersion, credentialsConfigured, agentsMdAction)
 }
 
 // buildProjectConfig creates a ProjectConfig interactively or from defaults
@@ -4736,7 +4813,7 @@ func printPostInstallInstructions(editor, location string) {
 }
 
 // printInitSummary prints the final summary after initialization
-func printInitSummary(cfg *ProjectConfig, skillsInstalled bool, skillsVersion string, credentialsConfigured bool, agentsMdAction string) {
+func printInitSummary(cfg *ProjectConfig, pluginInstalled bool, pluginVersion string, credentialsConfigured bool, agentsMdAction string) {
 	fmt.Println("Polaris initialized!")
 	fmt.Println()
 
@@ -4750,10 +4827,10 @@ func printInitSummary(cfg *ProjectConfig, skillsInstalled bool, skillsVersion st
 		fmt.Printf("               [%s]\n", strings.Join(componentNames, ", "))
 	}
 
-	if skillsInstalled {
-		fmt.Printf("  Skills:      Installed (v%s)\n", skillsVersion)
+	if pluginInstalled {
+		fmt.Printf("  Plugin:      Installed (v%s)\n", pluginVersion)
 	} else {
-		fmt.Println("  Skills:      Skipped")
+		fmt.Println("  Plugin:      Not installed")
 	}
 
 	switch agentsMdAction {
@@ -4779,6 +4856,9 @@ func printInitSummary(cfg *ProjectConfig, skillsInstalled bool, skillsVersion st
 	fmt.Println("Next steps:")
 	if !credentialsConfigured {
 		fmt.Println("  polaris login               Set up API credentials")
+	}
+	if !pluginInstalled {
+		fmt.Println("  polaris plugin install claude  Install the Claude Code plugin")
 	}
 	fmt.Println("  polaris status              Check API connection")
 	fmt.Println("  /polaris:detect-risks       Run first risk scan")
