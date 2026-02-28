@@ -7,7 +7,7 @@ Connect your codebase to the [Polaris](https://dev.relynce.ai) reliability risk 
 **From source (requires Go 1.25+):**
 
 ```bash
-go install github.com/relynce/polaris-cli@latest
+go install github.com/relynce/polaris-cli/cmd/polaris@latest
 ```
 
 **From release binary:**
@@ -20,25 +20,40 @@ Download from [Releases](https://github.com/relynce/polaris-cli/releases) for yo
 # Configure your API credentials
 polaris login
 
-# Initialize a project (downloads Claude Code skills)
+# Initialize a project (installs Claude Code plugin if available)
 polaris init
 
-# Check connection and skill status
+# Check connection and plugin status
 polaris status
 ```
 
 ## Claude Code Integration
 
-After `polaris init`, the following slash commands are available in Claude Code:
+After `polaris init` (or `polaris plugin install claude`), the following slash commands are available in Claude Code. The core workflow chains automatically: detect → analyze → remediate.
+
+**Multi-Agent Workflow:**
 
 | Command | Description |
 |---------|-------------|
-| `/polaris:detect-risks` | Scan codebase for reliability risks |
-| `/polaris:risk-check` | Quick risk assessment |
+| `/polaris:detect-risks` | Multi-agent scan with expert agents, auto-chains to analyze |
+| `/polaris:analyze-risks` | Correlate with incidents, enrich with knowledge, score risks (auto-invoked) |
+| `/polaris:remediate-risks R-XXX` | Generate plan, apply fixes, submit evidence, resolve risk |
+
+**Guidance and Research:**
+
+| Command | Description |
+|---------|-------------|
+| `/polaris:risk-guidance R-XXX` | Codebase-specific remediation guidance for a risk |
+| `/polaris:risk-check` | Quick read-only check of existing risks |
 | `/polaris:control-guidance RC-XXX` | Implementation guidance for a control |
-| `/polaris:reliability-review` | Review code changes for reliability |
 | `/polaris:incident-patterns` | Search historical incident patterns |
 | `/polaris:sre-context` | Load full reliability context |
+
+**Review and Evidence:**
+
+| Command | Description |
+|---------|-------------|
+| `/polaris:reliability-review` | Review code changes for reliability |
 | `/polaris:submit-evidence` | Submit control implementation evidence |
 | `/polaris:list-open` | List unresolved risks |
 
@@ -48,8 +63,9 @@ After `polaris init`, the following slash commands are available in Claude Code:
 |---------|-------------|
 | `polaris login` | Configure API credentials |
 | `polaris logout` | Remove stored credentials |
-| `polaris init` | Initialize project and install skills |
-| `polaris status` | Check connection and skill status |
+| `polaris init` | Initialize project and install Claude Code plugin |
+| `polaris status` | Check connection and plugin status |
+| `polaris plugin` | Manage editor plugins (install, update, list, remove) |
 | `polaris scan` | Submit risk scan findings |
 | `polaris risk` | Manage risks (list, show, close, resolve) |
 | `polaris control` | Query the 58-control reliability catalog |

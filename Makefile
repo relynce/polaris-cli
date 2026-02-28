@@ -3,7 +3,7 @@
 GIT_HASH := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 
 build:
-	go build -ldflags "-X main.gitHash=$(GIT_HASH)" -o polaris .
+	go build -ldflags "-X main.gitHash=$(GIT_HASH)" -o polaris ./cmd/polaris
 
 install: build
 	sudo cp polaris /usr/local/bin/polaris

@@ -1,4 +1,4 @@
-polaris
+/polaris
 *.exe
 .env
 .polaris/
