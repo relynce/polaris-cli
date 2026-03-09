@@ -75,10 +75,11 @@ type ScanMetadata struct {
 
 // ScanResponse matches the API response format
 type ScanResponse struct {
-	ScanID    string      `json:"scan_id"`
-	Service   string      `json:"service"`
-	Summary   ScanSummary `json:"summary"`
-	Timestamp string      `json:"timestamp"`
+	ScanID    string       `json:"scan_id"`
+	Service   string       `json:"service"`
+	Summary   ScanSummary  `json:"summary"`
+	Findings  []ScanResult `json:"findings"`
+	Timestamp string       `json:"timestamp"`
 }
 
 // ScanSummary provides counts
@@ -91,6 +92,16 @@ type ScanSummary struct {
 	High      int `json:"high"`
 	Medium    int `json:"medium"`
 	Low       int `json:"low"`
+}
+
+// ScanResult represents the result of processing a single finding.
+type ScanResult struct {
+	RiskID   string `json:"risk_id"`
+	RiskCode string `json:"risk_code"`
+	Title    string `json:"title"`
+	Status   string `json:"status"`   // created, updated, unchanged
+	Score    int    `json:"score"`
+	Priority string `json:"priority"` // critical, high, medium, low
 }
 
 func main() {
@@ -718,7 +729,27 @@ func cmdScan(args []string) {
 			response.Summary.Critical, response.Summary.High,
 			response.Summary.Medium, response.Summary.Low)
 	}
-	fmt.Printf("  View results: %s/risks\n", cfg.APIURL)
+	fmt.Println()
+
+	// Print individual findings with risk codes
+	if len(response.Findings) > 0 {
+		fmt.Println("Findings:")
+		for _, f := range response.Findings {
+			status := f.Status
+			if status == "created" {
+				status = "NEW"
+			} else if status == "updated" {
+				status = "UPD"
+			} else {
+				status = "---"
+			}
+			fmt.Printf("  [%s] %s: %s (score: %d, %s)\n",
+				status, f.RiskCode, f.Title, f.Score, f.Priority)
+		}
+		fmt.Println()
+	}
+
+	fmt.Printf("View results: %s/risks\n", cfg.APIURL)
 }
 
 // loadAndResolveConfig loads config and resolves org name to UUID.
