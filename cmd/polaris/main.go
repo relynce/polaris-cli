@@ -322,6 +322,9 @@ func cmdLogin() {
 	apiKey := strings.TrimSpace(string(apiKeyBytes))
 	if apiKey != "" {
 		cfg.APIKey = apiKey
+		fmt.Println("  API key received.")
+	} else if cfg.APIKey != "" {
+		fmt.Println("  Keeping existing API key.")
 	}
 	if cfg.APIKey == "" {
 		fmt.Fprintln(os.Stderr, "Error: API key is required")
