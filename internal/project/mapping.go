@@ -42,6 +42,12 @@ func MapFindingsToComponents(findings []interface{}, projectCfg *ProjectConfig) 
 			}
 		}
 
+		// Use explicit component field if present (set by skills)
+		if compName, ok := finding["component"].(string); ok && compName != "" {
+			finding["linked_services"] = []interface{}{project + "/" + compName}
+			continue
+		}
+
 		// Collect evidence paths
 		evidence, ok := finding["evidence"].([]interface{})
 		if !ok || len(evidence) == 0 {
