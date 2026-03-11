@@ -129,7 +129,7 @@ func CmdStatus(version, gitHash string) {
 		fmt.Println("  Available: claude, codex, gemini, cursor, windsurf, copilot, augment")
 	} else {
 		for _, p := range plugins {
-			if serverVersion != "" && p.Version != serverVersion {
+			if serverVersion != "" && plugin.SemVerNewer(p.Version, serverVersion) {
 				fmt.Printf("  %s: v%s (update available: v%s)\n", p.Editor, p.Version, serverVersion)
 				fmt.Printf("    Run 'rely plugin update %s' to upgrade\n", p.Editor)
 			} else if serverVersion != "" {

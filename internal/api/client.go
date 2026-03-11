@@ -150,7 +150,8 @@ func MakeAPIRequest(cfg *config.Config, method, url string, body []byte) ([]byte
 	return respBody, nil
 }
 
-// FetchServerPluginVersion queries the API for the latest plugin version.
+// FetchServerPluginVersion queries the API for the latest plugin semver.
+// Returns the semver base (e.g., "0.2.0") without build metadata.
 // Returns empty string if the server is unreachable or returns an error.
 func FetchServerPluginVersion(cfg *config.Config) string {
 	if cfg == nil || cfg.APIKey == "" || cfg.APIURL == "" {
@@ -176,10 +177,19 @@ func FetchServerPluginVersion(cfg *config.Config) string {
 
 	var result struct {
 		Version string `json:"version"`
+		SemVer  string `json:"semver"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return ""
 	}
 
+	// Prefer the dedicated semver field (new servers), fall back to
+	// stripping build metadata from the full version (old servers).
+	if result.SemVer != "" {
+		return result.SemVer
+	}
+	if idx := strings.Index(result.Version, "+"); idx != -1 {
+		return result.Version[:idx]
+	}
 	return result.Version
 }

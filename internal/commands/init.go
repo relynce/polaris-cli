@@ -176,7 +176,7 @@ func CmdInit(args []string) {
 
 			if existing != nil {
 				// Already installed — check for updates
-				if serverVersion != "" && serverVersion != existing.Version {
+				if serverVersion != "" && plugin.SemVerNewer(existing.Version, serverVersion) {
 					doUpdate := force || yesAll
 					if !doUpdate {
 						err := huh.NewConfirm().

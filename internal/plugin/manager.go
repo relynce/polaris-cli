@@ -134,9 +134,20 @@ func InstallPlugin(editor string) error {
 		return fmt.Errorf("download failed (status %d): %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	version := strings.TrimPrefix(filepath.Base(resp.Header.Get("Content-Disposition")), "attachment; filename=relynce-plugin-")
-	version = strings.TrimSuffix(version, ".tar.gz")
-	version = strings.TrimPrefix(version, editor+"-")
+	// Prefer X-Plugin-SemVer header (new servers), fall back to Content-Disposition parsing
+	version := resp.Header.Get("X-Plugin-SemVer")
+	if version == "" {
+		version = resp.Header.Get("X-Plugin-Version")
+	}
+	if version == "" {
+		// Legacy fallback: parse from Content-Disposition filename
+		cd := resp.Header.Get("Content-Disposition")
+		version = strings.TrimPrefix(cd, "attachment; filename=relynce-plugin-")
+		version = strings.TrimPrefix(version, "attachment; filename=polaris-plugin-")
+		version = strings.TrimSuffix(version, ".tar.gz")
+		version = strings.TrimPrefix(version, editor+"-")
+	}
+	version = SemVerBase(version)
 	checksum := resp.Header.Get("X-Checksum")
 
 	tarballData, err := io.ReadAll(resp.Body)
@@ -235,7 +246,7 @@ func ListInstalledPlugins() {
 	for _, p := range plugins {
 		fmt.Printf("\n  %s\n", p.Editor)
 		fmt.Printf("    Version:   %s\n", p.Version)
-		if serverVersion != "" && p.Version != serverVersion {
+		if serverVersion != "" && SemVerNewer(p.Version, serverVersion) {
 			fmt.Printf("    Latest:    %s (update available)\n", serverVersion)
 		} else if serverVersion != "" {
 			fmt.Printf("    Latest:    %s (up to date)\n", serverVersion)
@@ -246,7 +257,7 @@ func ListInstalledPlugins() {
 
 	if serverVersion != "" {
 		for _, p := range plugins {
-			if p.Version != serverVersion {
+			if SemVerNewer(p.Version, serverVersion) {
 				fmt.Printf("\nRun 'rely plugin update' to upgrade.\n")
 				break
 			}
