@@ -37,6 +37,7 @@ type ScanResponse struct {
 	Service   string       `json:"service"`
 	Summary   ScanSummary  `json:"summary"`
 	Findings  []ScanResult `json:"findings"`
+	Warnings  []string     `json:"warnings,omitempty"`
 	Timestamp string       `json:"timestamp"`
 }
 
@@ -54,12 +55,13 @@ type ScanSummary struct {
 
 // ScanResult represents a single risk finding from the scan
 type ScanResult struct {
-	RiskID   string `json:"risk_id"`
-	RiskCode string `json:"risk_code"`
-	Title    string `json:"title"`
-	Status   string `json:"status"`
-	Score    int    `json:"score"`
-	Priority string `json:"priority"`
+	RiskID   string   `json:"risk_id"`
+	RiskCode string   `json:"risk_code"`
+	Title    string   `json:"title"`
+	Status   string   `json:"status"`
+	Score    int      `json:"score"`
+	Priority string   `json:"priority"`
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // CmdScan handles the scan command
@@ -222,6 +224,14 @@ func CmdScan(args []string, version string) {
 				status, f.RiskCode, f.Title, f.Score, f.Priority)
 		}
 		fmt.Println()
+	}
+
+	if len(response.Warnings) > 0 {
+		fmt.Fprintf(os.Stderr, "Warnings:\n")
+		for _, w := range response.Warnings {
+			fmt.Fprintf(os.Stderr, "  ⚠ %s\n", w)
+		}
+		fmt.Fprintln(os.Stderr)
 	}
 
 	fmt.Printf("View results: %s/risks\n", cfg.APIURL)
