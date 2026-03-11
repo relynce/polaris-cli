@@ -136,6 +136,7 @@ func InstallPlugin(editor string) error {
 
 	version := strings.TrimPrefix(filepath.Base(resp.Header.Get("Content-Disposition")), "attachment; filename=relynce-plugin-")
 	version = strings.TrimSuffix(version, ".tar.gz")
+	version = strings.TrimPrefix(version, editor+"-")
 	checksum := resp.Header.Get("X-Checksum")
 
 	tarballData, err := io.ReadAll(resp.Body)
