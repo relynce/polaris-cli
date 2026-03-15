@@ -195,9 +195,11 @@ Options:
   --format <json|table>  Output format (default: table)
   --status <status>      Filter by status (for list command)
   --category <category>  Filter by category (for list command)
+  --service <name>       Filter by linked service (for list command)
 
 Examples:
   rely risk list
+  rely risk list --status detected --service polaris
   rely risk show R-001
   rely risk context R-001
   rely risk resolve R-001`)
@@ -207,7 +209,7 @@ Examples:
 func CmdRiskList(args []string) {
 	cfg := api.LoadAndResolveConfig()
 
-	var statusFilter, categoryFilter, format string
+	var statusFilter, categoryFilter, serviceFilter, format string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--status":
@@ -220,6 +222,11 @@ func CmdRiskList(args []string) {
 				categoryFilter = args[i+1]
 				i++
 			}
+		case "--service":
+			if i+1 < len(args) {
+				serviceFilter = args[i+1]
+				i++
+			}
 		case "--format":
 			if i+1 < len(args) {
 				format = args[i+1]
@@ -229,16 +236,17 @@ func CmdRiskList(args []string) {
 	}
 
 	endpoint := cfg.APIURL + "/api/v1/risks"
-	queryParams := []string{}
+	queryParams := []string{"limit=1000"}
 	if statusFilter != "" {
 		queryParams = append(queryParams, fmt.Sprintf("status=%s", statusFilter))
 	}
 	if categoryFilter != "" {
 		queryParams = append(queryParams, fmt.Sprintf("category=%s", categoryFilter))
 	}
-	if len(queryParams) > 0 {
-		endpoint += "?" + strings.Join(queryParams, "&")
+	if serviceFilter != "" {
+		queryParams = append(queryParams, fmt.Sprintf("service=%s", serviceFilter))
 	}
+	endpoint += "?" + strings.Join(queryParams, "&")
 
 	body, err := api.MakeAPIRequest(cfg, "GET", endpoint, nil)
 	if err != nil {
@@ -696,7 +704,7 @@ func CmdRiskAccept(args []string) {
 
 // FindRiskIDByCode finds a risk ID by its risk code
 func FindRiskIDByCode(cfg *config.Config, riskCode string) (string, error) {
-	endpoint := cfg.APIURL + "/api/v1/risks"
+	endpoint := cfg.APIURL + "/api/v1/risks?limit=1000"
 	body, err := api.MakeAPIRequest(cfg, "GET", endpoint, nil)
 	if err != nil {
 		return "", err
