@@ -625,13 +625,21 @@ func CmdRiskClose(args []string) {
 // CmdRiskResolve marks a risk as resolved
 func CmdRiskResolve(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: rely risk resolve <risk-code>")
+		fmt.Fprintln(os.Stderr, "Usage: rely risk resolve <risk-code> [--reason \"...\"]")
 		os.Exit(1)
 	}
 
 	cfg := api.LoadAndResolveConfig()
 
 	riskCode := args[0]
+	reason := "Resolved"
+	for i := 1; i < len(args); i++ {
+		if args[i] == "--reason" && i+1 < len(args) {
+			reason = args[i+1]
+			i++
+		}
+	}
+
 	riskID, err := FindRiskIDByCode(cfg, riskCode)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error finding risk: %v\n", err)
@@ -639,7 +647,8 @@ func CmdRiskResolve(args []string) {
 	}
 
 	endpoint := cfg.APIURL + "/api/v1/risks/" + riskID + "/resolve"
-	_, err = api.MakeAPIRequest(cfg, "POST", endpoint, nil)
+	body, _ := json.Marshal(map[string]string{"reason": reason})
+	_, err = api.MakeAPIRequest(cfg, "POST", endpoint, body)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error resolving risk: %v\n", err)
 		os.Exit(1)
