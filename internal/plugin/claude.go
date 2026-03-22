@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"github.com/relynce/rely-cli/internal/project"
 )
 
 // CleanupOldClaudeInstallations removes old Relynce installations from Claude Code directories
@@ -121,8 +123,21 @@ func InstallClaudePlugin(version string, tarballData []byte) error {
 		fmt.Fprintf(os.Stderr, "Warning: could not save plugin metadata: %v\n", err)
 	}
 
+	// Install CLAUDE.md managed block if we're in a git repo
+	if gitRoot := project.DetectGitRoot(); gitRoot != "" {
+		claudeMdSrc := filepath.Join(pluginDir, "CLAUDE.md")
+		if _, err := os.Stat(claudeMdSrc); err == nil {
+			action, err := EnsureClaudeMd(gitRoot, claudeMdSrc, true)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not set up CLAUDE.md: %v\n", err)
+			} else if action != "skipped" {
+				fmt.Printf("✓ CLAUDE.md: %s\n", action)
+			}
+		}
+	}
+
 	fmt.Printf("\n✅ Relynce plugin successfully installed!\n")
-	fmt.Printf("Commands are now available: /rely:detect-risks, /rely:analyze-risks, etc.\n")
+	fmt.Printf("Commands are now available: /rely:scan, /rely:fix, /rely:ask, etc.\n")
 	fmt.Printf("\nRestart Claude Code to ensure all commands are loaded.\n")
 
 	return nil

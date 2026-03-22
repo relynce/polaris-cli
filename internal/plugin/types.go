@@ -15,11 +15,22 @@ type PluginInfo struct {
 	Location  string `json:"location"`
 }
 
-// PolarisSkillNames lists all Relynce skill directory names for cleanup
+// PolarisSkillNames lists all Relynce skill directory names for cleanup.
+// Includes both old (pre-0.7.0) and current names to clean up any version.
 var PolarisSkillNames = []string{
+	// Current skills (v0.7.0+)
+	"ask", "evidence", "fix", "review", "risks", "scan", "status",
+	// Legacy skills (pre-0.7.0) — kept for cleanup of old installations
 	"detect-risks", "analyze-risks", "remediate-risks", "risk-check",
 	"risk-guidance", "control-guidance", "submit-evidence", "reliability-review",
-	"incident-patterns", "sre-context", "list-open",
+	"incident-patterns", "sre-context", "list-open", "ready",
+	"ai-reliability-guidance", "capacity-planning-guidance", "cicd-guidance",
+	"cost-governance-guidance", "deployment-excellence-guidance",
+	"development-testing-guidance", "disaster-recovery-guidance",
+	"incident-response-guidance", "observability-guidance",
+	"post-incident-guidance", "reliability-culture-guidance",
+	"resilience-guidance", "security-supply-chain-guidance",
+	"slo-monitoring-guidance",
 }
 
 // EditorBinaries maps editor names to their CLI binary names for PATH detection

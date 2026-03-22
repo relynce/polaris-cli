@@ -436,9 +436,9 @@ func PrintPostInstallInstructions(editor, location string) {
 		fmt.Println("  2. Or start Claude Code with:")
 		fmt.Printf("     claude --plugin-dir %s\n\n", location)
 		fmt.Println("Available commands:")
-		fmt.Println("  /rely:detect-risks     - Scan for reliability risks")
-		fmt.Println("  /rely:analyze-risks    - Analyze detected risks")
-		fmt.Println("  /rely:remediate-risks  - Generate remediation plans")
+		fmt.Println("  /rely:scan             - Scan for reliability risks")
+		fmt.Println("  /rely:fix R-XXX        - Fix a specific risk")
+		fmt.Println("  /rely:ask \"question\"   - Ask a reliability expert")
 	case "codex":
 		fmt.Printf("Skills installed to: %s\n\n", location)
 		fmt.Println("Skills are auto-discovered by Codex CLI.")
@@ -452,11 +452,11 @@ func PrintPostInstallInstructions(editor, location string) {
 	case "cursor":
 		fmt.Printf("Skills and agents installed to: %s\n\n", location)
 		fmt.Println("Skills and agents are auto-discovered by Cursor.")
-		fmt.Println("Use /detect-risks or ask naturally.")
+		fmt.Println("Use /scan or ask naturally.")
 	case "windsurf":
 		fmt.Printf("Skills installed to: %s\n\n", location)
 		fmt.Println("Skills are auto-discovered by Windsurf.")
-		fmt.Println("Use @detect-risks or ask Cascade naturally.")
+		fmt.Println("Use @scan or ask Cascade naturally.")
 	case "copilot":
 		fmt.Printf("Skills and agents installed to: %s\n\n", location)
 		fmt.Println("Skills and agents are auto-discovered by Copilot CLI.")

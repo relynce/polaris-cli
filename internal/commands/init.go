@@ -18,12 +18,14 @@ const agentsMdTemplate = `## Relynce
 
 This project uses Relynce for reliability risk analysis. The following skills are available:
 
-### Risk Detection
-- ` + "`/rely:detect-risks`" + ` — Scan code for reliability risks and submit findings
-- ` + "`/rely:risk-guidance`" + ` — Get detailed guidance for a specific risk
-
-### Risk Remediation
-- ` + "`/rely:remediate-risks`" + ` — Auto-implement fixes for detected risks
+### Core Skills
+- ` + "`/rely:scan`" + ` — Scan codebase for reliability risks
+- ` + "`/rely:fix R-XXX`" + ` — Get remediation guidance and auto-fix a risk
+- ` + "`/rely:ask \"question\"`" + ` — Ask any reliability question to a domain expert
+- ` + "`/rely:risks`" + ` — View risk posture, open risks, and ready-to-fix items
+- ` + "`/rely:review`" + ` — Review code changes for reliability issues
+- ` + "`/rely:evidence RC-XXX`" + ` — Submit evidence after implementing a control
+- ` + "`/rely:status`" + ` — Check connection and configuration
 
 ### Quick Reference
 - Run ` + "`rely risk list`" + ` to see current risks
@@ -260,7 +262,31 @@ func CmdInit(args []string) {
 	}
 	fmt.Println()
 
-	// Step 5: Check credentials
+	// Step 5: Set up CLAUDE.md managed block (Claude editor only)
+	if pluginInstalled {
+		home, _ := os.UserHomeDir()
+		claudeMdSrc := filepath.Join(home, ".relynce", "marketplace", "plugins", "relynce", "CLAUDE.md")
+		if _, statErr := os.Stat(claudeMdSrc); statErr == nil {
+			claudeAction, claudeErr := plugin.EnsureClaudeMd(gitRoot, claudeMdSrc, yesAll || force)
+			if claudeErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not set up CLAUDE.md: %v\n", claudeErr)
+			} else {
+				switch claudeAction {
+				case "created":
+					fmt.Println("Created CLAUDE.md with Relynce managed block")
+				case "appended":
+					fmt.Println("Appended Relynce managed block to CLAUDE.md")
+				case "updated":
+					fmt.Println("Updated Relynce managed block in CLAUDE.md")
+				case "skipped":
+					fmt.Println("CLAUDE.md: Skipped")
+				}
+			}
+			fmt.Println()
+		}
+	}
+
+	// Step 6: Check credentials
 	credentialsConfigured := false
 	credentialsURL := ""
 	loginCfg, _ := config.LoadConfig()
@@ -274,7 +300,7 @@ func CmdInit(args []string) {
 	}
 	fmt.Println()
 
-	// Step 6: Print summary
+	// Step 7: Print summary
 	printInitSummary(cfg, pluginInstalled, pluginVersion, credentialsConfigured, agentsMdAction)
 }
 
