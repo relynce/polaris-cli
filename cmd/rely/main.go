@@ -7,14 +7,36 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 
 	"github.com/relynce/rely-cli/internal/commands"
 	"github.com/relynce/rely-cli/internal/plugin"
 )
 
 // version and gitHash are set at build time via -ldflags "-X main.version=... -X main.gitHash=..."
+// When installed via "go install", these remain at defaults and init() populates them
+// from the embedded build info instead.
 var version = "source-build"
 var gitHash = "dev"
+
+func init() {
+	if version != "source-build" {
+		return // ldflags were set, nothing to do
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+	if info.Main.Version != "" && info.Main.Version != "(devel)" {
+		version = info.Main.Version
+	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" && len(s.Value) >= 7 {
+			gitHash = s.Value[:7]
+			break
+		}
+	}
+}
 
 // migrateConfigDir copies ~/.polaris/ to ~/.relynce/ if the old dir exists but the new one doesn't.
 func migrateConfigDir() {
