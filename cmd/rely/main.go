@@ -113,6 +113,8 @@ func main() {
 		commands.CmdCompletion(os.Args[2:])
 	case "plugin":
 		plugin.CmdPlugin(os.Args[2:])
+	case "review":
+		commands.CmdReview(os.Args[2:])
 	case "version":
 		fmt.Printf("rely version %s (%s)\n", version, gitHash)
 	case "help", "--help", "-h":
@@ -136,6 +138,7 @@ Commands:
   logout             Remove stored credentials
   status             Check connection and authentication status
   scan               Submit risk findings to Relynce
+  review             Review a commit or PR for reliability risks (CI/CD gate)
   risk               Manage risk lifecycle (list, close, resolve, etc.)
   control            Query reliability controls catalog
   knowledge          Query organizational knowledge base (facts, procedures, patterns)
@@ -153,6 +156,18 @@ Scan Command:
   rely scan --service <name> --file <path> Read findings from file
   rely scan --service <name> --dry-run     Validate without submitting
   rely scan --target <path> --file <path>  Scan another project (service auto-resolved from .relynce.yaml)
+
+Review Command:
+  rely review [--commit <sha>] [--base <ref>] [--env <env>] [--format <text|json>] [--enforce] [--fail-closed] [--verbose]
+    Review a commit or PR for reliability risks
+    Flags:
+      --commit <sha>     Commit to review (default: HEAD)
+      --base <ref>       Base ref for diff (auto-detect from CI, fallback: origin/main)
+      --env <env>        Environment name (auto-detect from CI)
+      --format <fmt>     Output format: text (default) or json
+      --enforce          Exit 1 on hold (default: advisory mode, always exit 0)
+      --fail-closed      Exit 1 if API unreachable (default: fail open)
+      --verbose          Show full risk details
 
 Risk Command:
   rely risk list [--status=detected] [--service=name]  List risks
@@ -179,6 +194,10 @@ Examples:
 
   # Check status
   rely status
+
+  # Review code for reliability risks (use in CI/CD)
+  rely review --enforce
+  rely review --commit abc123 --env production --format json
 
   # Manage risks
   rely risk list --status=detected
