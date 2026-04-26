@@ -218,6 +218,18 @@ func CmdStatus(version, gitHash string) {
 	}
 	fmt.Println("Status: Connected")
 
+	// Check for CLI updates
+	if latestVersion := api.FetchLatestCLIVersion(); latestVersion != "" {
+		currentVersion := strings.TrimPrefix(version, "v")
+		if plugin.SemVerNewer(currentVersion, latestVersion) {
+			fmt.Printf("\nCLI update available: v%s -> v%s\n", currentVersion, latestVersion)
+			fmt.Println("  Upgrade: go install github.com/revelara-ai/rvl-cli/cmd/rvl@latest")
+			fmt.Println("  Release: https://github.com/revelara-ai/rvl-cli/releases/latest")
+		} else {
+			fmt.Printf("\nCLI: v%s (up to date)\n", currentVersion)
+		}
+	}
+
 	fmt.Println("\nPlugins:")
 	serverVersion := api.FetchServerPluginVersion(cfg)
 	plugins, err := plugin.GetInstalledPlugins()

@@ -202,6 +202,36 @@ func FetchServerPluginVersion(cfg *config.Config) string {
 	return result.Version
 }
 
+// FetchLatestCLIVersion queries GitHub releases for the latest CLI version.
+// Returns the version string (e.g., "0.7.4") or empty string on error.
+func FetchLatestCLIVersion() string {
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest("GET", "https://api.github.com/repos/revelara-ai/rvl-cli/releases/latest", nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return ""
+	}
+
+	var result struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return ""
+	}
+
+	return strings.TrimPrefix(result.TagName, "v")
+}
+
 // FetchSigningKey fetches the Ed25519 public key used to sign plugin tarballs.
 // Returns nil if the server doesn't support signing or is unreachable.
 func FetchSigningKey(cfg *config.Config) ed25519.PublicKey {
