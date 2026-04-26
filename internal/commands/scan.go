@@ -25,12 +25,24 @@ type ScanRequest struct {
 	Findings     []interface{} `json:"findings"`
 	Metadata     ScanMetadata  `json:"metadata,omitempty"`
 
+	// Control structure data (optional, populated by scan skill Step 1.2)
+	RepoURL          string                    `json:"repo_url,omitempty"`
+	ControlStructure *ScanControlStructureData `json:"control_structure,omitempty"`
+
 	// Service catalog data (optional, populated by detect-risks scans)
 	Stack        *ScanStackInfo   `json:"stack,omitempty"`
 	Components   []ScanComponent  `json:"components,omitempty"`
 	Dependencies []ScanDependency `json:"dependencies,omitempty"`
 	CatalogMeta         *ScanCatalogMeta `json:"catalog_meta,omitempty"`
 	BusinessCriticality *float64         `json:"business_criticality,omitempty"`
+}
+
+// ScanControlStructureData is the control structure portion of a scan request.
+type ScanControlStructureData struct {
+	Nodes        json.RawMessage `json:"nodes"`
+	Edges        json.RawMessage `json:"edges"`
+	ScannedFiles int             `json:"scanned_files"`
+	ScannedLines int64           `json:"scanned_lines"`
 }
 
 // ScanMetadata contains metadata about the scan
