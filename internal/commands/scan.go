@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -152,6 +153,7 @@ func CmdScan(args []string, version string) {
 	var useStdin bool
 	var dryRun bool
 	var targetDir string
+	var scanDir string
 	var reviewMode bool
 	var autoInfer bool
 	var ciMode bool
@@ -188,6 +190,13 @@ func CmdScan(args []string, version string) {
 			}
 			i++
 			csFile = args[i]
+		case "--scan-dir":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --scan-dir requires a value")
+				os.Exit(1)
+			}
+			i++
+			scanDir = args[i]
 		case "--dry-run":
 			dryRun = true
 		case "--review":
@@ -199,6 +208,8 @@ func CmdScan(args []string, version string) {
 		default:
 			if strings.HasPrefix(args[i], "--target=") {
 				targetDir = strings.TrimPrefix(args[i], "--target=")
+			} else if strings.HasPrefix(args[i], "--scan-dir=") {
+				scanDir = strings.TrimPrefix(args[i], "--scan-dir=")
 			} else if !strings.HasPrefix(args[i], "-") && service == "" {
 				service = args[i]
 			}
@@ -234,45 +245,53 @@ func CmdScan(args []string, version string) {
 
 	if service == "" {
 		fmt.Fprintln(os.Stderr, "Error: --service is required (or use --target with a project that has .revelara.yaml)")
-		fmt.Fprintln(os.Stderr, "Usage: rvl scan --service <name> [--stdin|--file <path>] [--target <path>] [--dry-run]")
+		fmt.Fprintln(os.Stderr, "Usage: rvl scan --service <name> [--stdin|--file <path>|--scan-dir <path>] [--target <path>]")
 		os.Exit(1)
 	}
 
 	cfg := api.LoadAndResolveConfig()
 
-	var err error
-	var inputData []byte
-	if useStdin {
-		inputData, err = io.ReadAll(os.Stdin)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading stdin: %v\n", err)
-			os.Exit(1)
-		}
-	} else if inputFile != "" {
-		inputData, err = os.ReadFile(inputFile)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading file: %v\n", err)
+	var scanReq ScanRequest
+
+	if scanDir != "" {
+		// Merge all JSON part files from scan directory.
+		// Each file contributes its fields to the final request.
+		if err := mergeScanDir(scanDir, &scanReq); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
 	} else {
-		fmt.Fprintln(os.Stderr, "Error: Must specify --stdin or --file")
-		os.Exit(1)
-	}
-
-	var scanReq ScanRequest
-	if err := json.Unmarshal(inputData, &scanReq); err != nil {
-		var findings []interface{}
-		if err2 := json.Unmarshal(inputData, &findings); err2 != nil {
-			fmt.Fprintf(os.Stderr, "Error parsing input: %v\n", err)
+		var inputData []byte
+		var err error
+		if useStdin {
+			inputData, err = io.ReadAll(os.Stdin)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading stdin: %v\n", err)
+				os.Exit(1)
+			}
+		} else if inputFile != "" {
+			inputData, err = os.ReadFile(inputFile)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading file: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			fmt.Fprintln(os.Stderr, "Error: Must specify --stdin, --file, or --scan-dir")
 			os.Exit(1)
 		}
-		scanReq.Findings = findings
+
+		if err := json.Unmarshal(inputData, &scanReq); err != nil {
+			var findings []interface{}
+			if err2 := json.Unmarshal(inputData, &findings); err2 != nil {
+				fmt.Fprintf(os.Stderr, "Error parsing input: %v\n", err)
+				os.Exit(1)
+			}
+			scanReq.Findings = findings
+		}
 	}
 
 	// Merge control structure from separate file if provided.
-	// This allows the scan skill to write CS data in Step 1.2 (when it's
-	// fresh in context) and findings in Step 3, without needing both in
-	// the same heredoc.
+	// Works with both --file and --scan-dir for backward compatibility.
 	if csFile != "" {
 		csData, err := os.ReadFile(csFile)
 		if err != nil {
@@ -294,6 +313,10 @@ func CmdScan(args []string, version string) {
 			scanReq.ControlStructure = csPayload.ControlStructure
 		}
 	}
+
+	// Normalize control structure field names. Handles common agent mistakes:
+	// node_key->id, from_key->from_id, to_key->to_id, provenance format.
+	normalizeControlStructure(scanReq.ControlStructure)
 
 	scanReq.Service = service
 	if scanReq.ScanType == "" {
@@ -513,4 +536,149 @@ func submitScan(cfg *config.Config, scanReq *ScanRequest) (*ScanResponse, error)
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 	return &scanResp, nil
+}
+
+// mergeScanDir reads all JSON files from a directory and merges them into
+// a single ScanRequest. Files are processed in alphabetical order (use
+// numeric prefixes like 01-stack.json, 02-cs.json to control order).
+// Array fields (findings, components, dependencies) are concatenated.
+// Scalar/object fields use the last non-zero value.
+func mergeScanDir(dir string, scanReq *ScanRequest) error {
+	pattern := filepath.Join(dir, "*.json")
+	files, err := filepath.Glob(pattern)
+	if err != nil {
+		return fmt.Errorf("glob scan-dir: %w", err)
+	}
+	if len(files) == 0 {
+		return fmt.Errorf("no JSON files found in %s", dir)
+	}
+	sort.Strings(files)
+
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: skipping %s: %v\n", filepath.Base(f), err)
+			continue
+		}
+
+		var partial ScanRequest
+		if err := json.Unmarshal(data, &partial); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: skipping %s: invalid JSON: %v\n", filepath.Base(f), err)
+			continue
+		}
+
+		if partial.RepoURL != "" {
+			scanReq.RepoURL = partial.RepoURL
+		}
+		if partial.ControlStructure != nil {
+			scanReq.ControlStructure = partial.ControlStructure
+		}
+		if partial.Stack != nil {
+			scanReq.Stack = partial.Stack
+		}
+		if len(partial.Components) > 0 {
+			scanReq.Components = append(scanReq.Components, partial.Components...)
+		}
+		if len(partial.Dependencies) > 0 {
+			scanReq.Dependencies = append(scanReq.Dependencies, partial.Dependencies...)
+		}
+		if len(partial.Findings) > 0 {
+			scanReq.Findings = append(scanReq.Findings, partial.Findings...)
+		}
+		if partial.CatalogMeta != nil {
+			scanReq.CatalogMeta = partial.CatalogMeta
+		}
+		if partial.BusinessCriticality != nil {
+			scanReq.BusinessCriticality = partial.BusinessCriticality
+		}
+		if partial.ScanMode != "" {
+			scanReq.ScanMode = partial.ScanMode
+		}
+
+		fmt.Fprintf(os.Stderr, "Merged: %s (%d bytes)\n", filepath.Base(f), len(data))
+	}
+
+	if len(scanReq.Findings) == 0 {
+		fmt.Fprintln(os.Stderr, "Warning: no findings found in scan-dir files")
+	}
+
+	return nil
+}
+
+// normalizeControlStructure fixes common field name errors that agents produce.
+// Normalizes: node_key->id, from_key/from_node->from_id, to_key/to_node->to_id.
+// Removes edge_type (set server-side). Fixes provenance format mismatches
+// (node provenance must be array, edge provenance must be object).
+func normalizeControlStructure(cs *ScanControlStructureData) {
+	if cs == nil {
+		return
+	}
+
+	if len(cs.Nodes) > 0 {
+		var nodes []map[string]interface{}
+		if err := json.Unmarshal(cs.Nodes, &nodes); err == nil {
+			changed := false
+			for _, node := range nodes {
+				if v, ok := node["node_key"]; ok {
+					if _, hasID := node["id"]; !hasID {
+						node["id"] = v
+					}
+					delete(node, "node_key")
+					changed = true
+				}
+				// Node provenance must be an array
+				if prov, ok := node["provenance"]; ok {
+					if _, isMap := prov.(map[string]interface{}); isMap {
+						node["provenance"] = []interface{}{prov}
+						changed = true
+					}
+				}
+			}
+			if changed {
+				if normalized, err := json.Marshal(nodes); err == nil {
+					cs.Nodes = normalized
+				}
+			}
+		}
+	}
+
+	if len(cs.Edges) > 0 {
+		var edges []map[string]interface{}
+		if err := json.Unmarshal(cs.Edges, &edges); err == nil {
+			changed := false
+			for _, edge := range edges {
+				renames := [][2]string{
+					{"from_key", "from_id"},
+					{"from_node", "from_id"},
+					{"to_key", "to_id"},
+					{"to_node", "to_id"},
+				}
+				for _, pair := range renames {
+					if v, ok := edge[pair[0]]; ok {
+						if _, has := edge[pair[1]]; !has {
+							edge[pair[1]] = v
+						}
+						delete(edge, pair[0])
+						changed = true
+					}
+				}
+				if _, ok := edge["edge_type"]; ok {
+					delete(edge, "edge_type")
+					changed = true
+				}
+				// Edge provenance must be an object (not array)
+				if prov, ok := edge["provenance"]; ok {
+					if arr, isArr := prov.([]interface{}); isArr && len(arr) > 0 {
+						edge["provenance"] = arr[0]
+						changed = true
+					}
+				}
+			}
+			if changed {
+				if normalized, err := json.Marshal(edges); err == nil {
+					cs.Edges = normalized
+				}
+			}
+		}
+	}
 }
