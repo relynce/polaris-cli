@@ -148,6 +148,7 @@ type ScanResult struct {
 func CmdScan(args []string, version string) {
 	var service string
 	var inputFile string
+	var csFile string
 	var useStdin bool
 	var dryRun bool
 	var targetDir string
@@ -180,6 +181,13 @@ func CmdScan(args []string, version string) {
 			}
 			i++
 			inputFile = args[i]
+		case "--cs-file":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --cs-file requires a value")
+				os.Exit(1)
+			}
+			i++
+			csFile = args[i]
 		case "--dry-run":
 			dryRun = true
 		case "--review":
@@ -259,6 +267,32 @@ func CmdScan(args []string, version string) {
 			os.Exit(1)
 		}
 		scanReq.Findings = findings
+	}
+
+	// Merge control structure from separate file if provided.
+	// This allows the scan skill to write CS data in Step 1.2 (when it's
+	// fresh in context) and findings in Step 3, without needing both in
+	// the same heredoc.
+	if csFile != "" {
+		csData, err := os.ReadFile(csFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading --cs-file: %v\n", err)
+			os.Exit(1)
+		}
+		var csPayload struct {
+			RepoURL          string                    `json:"repo_url"`
+			ControlStructure *ScanControlStructureData `json:"control_structure"`
+		}
+		if err := json.Unmarshal(csData, &csPayload); err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing --cs-file: %v\n", err)
+			os.Exit(1)
+		}
+		if csPayload.RepoURL != "" && scanReq.RepoURL == "" {
+			scanReq.RepoURL = csPayload.RepoURL
+		}
+		if csPayload.ControlStructure != nil && scanReq.ControlStructure == nil {
+			scanReq.ControlStructure = csPayload.ControlStructure
+		}
 	}
 
 	scanReq.Service = service
