@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -97,7 +98,7 @@ func CmdMigrate(args []string) {
 		fmt.Printf("  [skipped]  CLAUDE.md markers (not in a git repository)\n")
 	}
 
-	// Step 5: AGENTS.md section header
+	// Step 5: AGENTS.md content
 	if gitRoot != "" {
 		action = migrateAgentsMdHeader(gitRoot, dryRun)
 		if action != "" {
@@ -105,11 +106,11 @@ func CmdMigrate(args []string) {
 			fmt.Printf("  [migrated] %s\n", action)
 		} else {
 			skipped++
-			fmt.Printf("  [skipped]  AGENTS.md header (already updated or no AGENTS.md found)\n")
+			fmt.Printf("  [skipped]  AGENTS.md (no migration needed or no AGENTS.md found)\n")
 		}
 	} else {
 		skipped++
-		fmt.Printf("  [skipped]  AGENTS.md header (not in a git repository)\n")
+		fmt.Printf("  [skipped]  AGENTS.md (not in a git repository)\n")
 	}
 
 	// Summary
@@ -270,7 +271,20 @@ func migrateClaudeMdMarkers(gitRoot string, dryRun bool) string {
 	return "Updated CLAUDE.md managed block markers (RELYNCE -> REVELARA)"
 }
 
-// migrateAgentsMdHeader replaces ## Relynce with ## Revelara in AGENTS.md.
+// agentsMdHeadingRe matches a markdown heading at any level whose title is "Relynce".
+// Captures: 1=heading prefix (e.g. "## "), 2=trailing whitespace+newline.
+var agentsMdHeadingRe = regexp.MustCompile(`(?m)^(#+\s+)Relynce(\s*)$`)
+
+// agentsMdRelynceWordRe matches the proper noun "Relynce" as a whole word.
+var agentsMdRelynceWordRe = regexp.MustCompile(`\bRelynce\b`)
+
+// agentsMdBacktickRelyRe matches ` + "`rely " + ` (backtick + "rely" as a whole word + space)
+// inside command examples like ` + "`rely risk list`" + `. Word boundary keeps it from matching
+// `relying` or other prose; the leading backtick keeps it from matching prose `we rely on`.
+var agentsMdBacktickRelyRe = regexp.MustCompile("`rely(\\s)")
+
+// migrateAgentsMdHeader rewrites Relynce -> Revelara and `rely <cmd>` -> `rvl <cmd>`
+// in AGENTS.md. Idempotent: returns "" if nothing needs changing.
 func migrateAgentsMdHeader(gitRoot string, dryRun bool) string {
 	agentsMdPath := filepath.Join(gitRoot, "AGENTS.md")
 	data, err := os.ReadFile(agentsMdPath)
@@ -278,22 +292,32 @@ func migrateAgentsMdHeader(gitRoot string, dryRun bool) string {
 		return ""
 	}
 
-	content := string(data)
-	if !strings.Contains(content, "## Relynce\n") {
+	original := string(data)
+	updated := original
+
+	// Heading at any level: "## Relynce", "# Relynce", "### Relynce", with or without
+	// trailing newline (handles end-of-file headings).
+	updated = agentsMdHeadingRe.ReplaceAllString(updated, "${1}Revelara${2}")
+
+	// Body mentions of the proper noun.
+	updated = agentsMdRelynceWordRe.ReplaceAllString(updated, "Revelara")
+
+	// Command examples in backticks: `rely risk` -> `rvl risk`.
+	updated = agentsMdBacktickRelyRe.ReplaceAllString(updated, "`rvl$1")
+
+	if updated == original {
 		return ""
 	}
 
 	if dryRun {
-		return "Would update AGENTS.md section header (## Relynce -> ## Revelara)"
+		return "Would update AGENTS.md (Relynce -> Revelara, `rely` -> `rvl`)"
 	}
 
-	content = strings.Replace(content, "## Relynce\n", "## Revelara\n", 1)
-
-	if err := os.WriteFile(agentsMdPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(agentsMdPath, []byte(updated), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "  [error]    Failed to update AGENTS.md: %v\n", err)
 		return ""
 	}
-	return "Updated AGENTS.md section header (## Relynce -> ## Revelara)"
+	return "Updated AGENTS.md (Relynce -> Revelara, `rely` -> `rvl`)"
 }
 
 // confirmStep prompts the user for a y/n confirmation.

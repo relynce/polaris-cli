@@ -28,9 +28,9 @@ This project uses Revelara for reliability risk analysis. The following skills a
 - ` + "`/rvl:status`" + ` — Check connection and configuration
 
 ### Quick Reference
-- Run ` + "`rely risk list`" + ` to see current risks
-- Run ` + "`rely risk show <code>`" + ` for risk details with mapped controls
-- Run ` + "`rely control show <code>`" + ` for control implementation guidance
+- Run ` + "`rvl risk list`" + ` to see current risks
+- Run ` + "`rvl risk show <code>`" + ` for risk details with mapped controls
+- Run ` + "`rvl control show <code>`" + ` for control implementation guidance
 `
 
 func printInitUsage() {
