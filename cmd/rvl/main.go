@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 
 	"github.com/revelara-ai/rvl-cli/internal/commands"
 	"github.com/revelara-ai/rvl-cli/internal/plugin"
@@ -39,9 +40,12 @@ func init() {
 }
 
 // migrateConfigDir performs a 3-way migration of the config directory:
-//  1. If ~/.revelara/ exists, done.
-//  2. If ~/.relynce/ exists, rename to ~/.revelara/.
-//  3. If ~/.polaris/ exists, copy files to ~/.revelara/.
+//  1. If ~/.revelara/ exists, ensure api_url inside is current.
+//  2. If ~/.relynce/ exists, rename to ~/.revelara/ and rewrite api_url.
+//  3. If ~/.polaris/ exists, copy files to ~/.revelara/ and rewrite api_url.
+//
+// Always runs the api_url rewrite at the end so partial-state directories
+// (renamed without api_url update) self-heal on the next invocation.
 func migrateConfigDir() {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -50,8 +54,9 @@ func migrateConfigDir() {
 
 	newDir := filepath.Join(home, ".revelara")
 
-	// If target already exists, nothing to do
+	// If target already exists, still ensure api_url is current and return.
 	if _, err := os.Stat(newDir); err == nil {
+		rewriteRelynceAPIURL(filepath.Join(newDir, "config.yaml"))
 		return
 	}
 
@@ -60,6 +65,7 @@ func migrateConfigDir() {
 	if _, err := os.Stat(relynceDir); err == nil {
 		if err := os.Rename(relynceDir, newDir); err == nil {
 			fmt.Fprintf(os.Stderr, "Migrated configuration from ~/.relynce/ to ~/.revelara/\n")
+			rewriteRelynceAPIURL(filepath.Join(newDir, "config.yaml"))
 			return
 		}
 	}
@@ -93,12 +99,51 @@ func migrateConfigDir() {
 	}
 	if migrated > 0 {
 		fmt.Fprintf(os.Stderr, "Migrated configuration from ~/.polaris/ to ~/.revelara/\n")
+		rewriteRelynceAPIURL(filepath.Join(newDir, "config.yaml"))
 	}
 }
 
+// rewriteRelynceAPIURL replaces api.relynce.ai with api.revelara.ai in the
+// given config file. No-op if the file is missing or already current.
+func rewriteRelynceAPIURL(configPath string) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return
+	}
+	if !strings.Contains(string(data), "api.relynce.ai") {
+		return
+	}
+	updated := strings.ReplaceAll(string(data), "api.relynce.ai", "api.revelara.ai")
+	if err := os.WriteFile(configPath, []byte(updated), 0600); err == nil {
+		fmt.Fprintf(os.Stderr, "Updated api_url in %s (api.relynce.ai -> api.revelara.ai)\n", configPath)
+	}
+}
+
+// shouldSkipAutoMigrate returns true for invocations that should not trigger
+// filesystem changes (help, version, no-arg, unknown flags). Auto-migration
+// only runs when the user is actually using the CLI.
+func shouldSkipAutoMigrate(args []string) bool {
+	if len(args) < 2 {
+		return true
+	}
+	switch args[1] {
+	case "help", "--help", "-h", "version", "--version", "-v":
+		return true
+	}
+	// Treat any leading flag (e.g. "rvl --dry-run") as a non-command and skip.
+	if strings.HasPrefix(args[1], "-") {
+		return true
+	}
+	return false
+}
+
 func main() {
-	// Auto-migrate config directory to ~/.revelara/
-	migrateConfigDir()
+	// Auto-migrate config directory to ~/.revelara/, but only when the user
+	// is actually invoking a command. Help/version/unknown-flag invocations
+	// must not cause filesystem changes.
+	if !shouldSkipAutoMigrate(os.Args) {
+		migrateConfigDir()
+	}
 
 	if len(os.Args) < 2 {
 		printUsage()
