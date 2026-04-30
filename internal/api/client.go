@@ -78,7 +78,14 @@ func ResolveOrganizationID(cfg *config.Config) error {
 		}
 	}
 
-	// List available org names to help the user
+	// Distinguish "no orgs accessible" from "wrong name" — they have different fixes.
+	if len(orgsResp.Organizations) == 0 {
+		return fmt.Errorf("no organizations are accessible with this API key. " +
+			"Your account may not be associated with an organization, or the API key " +
+			"was issued for a different environment. Visit https://app.revelara.ai/settings/api-keys " +
+			"to reconfigure, or contact support@revelara.ai")
+	}
+
 	names := make([]string, len(orgsResp.Organizations))
 	for i, org := range orgsResp.Organizations {
 		names[i] = org.Name
@@ -149,7 +156,7 @@ func MakeAPIRequest(cfg *config.Config, method, url string, body []byte) ([]byte
 	}
 
 	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		return nil, fmt.Errorf("authentication failed - run 'rely login' to reconfigure")
+		return nil, fmt.Errorf("authentication failed - run 'rvl login' to reconfigure")
 	}
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("server error (%d): %s", resp.StatusCode, string(respBody))
