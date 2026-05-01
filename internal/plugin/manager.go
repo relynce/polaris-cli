@@ -375,6 +375,144 @@ func ListInstalledPlugins() {
 	}
 }
 
+// AgentEntry describes one installed agent (lens) available to the scanner.
+type AgentEntry struct {
+	ID          string `json:"id"`
+	Description string `json:"description"`
+}
+
+// ListInstalledAgents prints the list of agent files (lenses) installed for the
+// given editor. Default editor is "claude". Output is human-readable by default;
+// pass --json for machine-readable output (used by the scan skill).
+func ListInstalledAgents(args []string) {
+	editor := "claude"
+	asJSON := false
+	for _, a := range args {
+		switch {
+		case a == "--json":
+			asJSON = true
+		case strings.HasPrefix(a, "--editor="):
+			editor = strings.TrimPrefix(a, "--editor=")
+		case a == "--help", a == "-h":
+			fmt.Println("Usage: rvl plugin agents [--editor=<name>] [--json]")
+			fmt.Println("\nList installed agent lenses available to the scanner.")
+			fmt.Println("Default editor: claude.")
+			return
+		}
+	}
+
+	agentsDir, err := installedAgentsDir(editor)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	entries, err := os.ReadDir(agentsDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: read agents directory %s: %v\n", agentsDir, err)
+		os.Exit(1)
+	}
+
+	var agents []AgentEntry
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		id := strings.TrimSuffix(e.Name(), ".md")
+		desc := readFrontmatterDescription(filepath.Join(agentsDir, e.Name()))
+		agents = append(agents, AgentEntry{ID: id, Description: desc})
+	}
+	sort.Slice(agents, func(i, j int) bool { return agents[i].ID < agents[j].ID })
+
+	if asJSON {
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"agents": agents})
+		return
+	}
+	for _, a := range agents {
+		if a.Description != "" {
+			fmt.Printf("%s\t%s\n", a.ID, a.Description)
+		} else {
+			fmt.Println(a.ID)
+		}
+	}
+}
+
+// installedAgentsDir resolves the directory that holds installed agent files
+// for the given editor. It uses PluginInfo.Location (set at install time) as
+// the canonical anchor and applies editor-specific layout rules.
+func installedAgentsDir(editor string) (string, error) {
+	plugins, err := GetInstalledPlugins()
+	if err != nil {
+		return "", fmt.Errorf("read installed plugins: %w", err)
+	}
+	for _, p := range plugins {
+		if p.Editor != editor {
+			continue
+		}
+		// Claude installs as a marketplace plugin: <Location>/agents/*.md.
+		// Tier-2 editors (gemini, cursor, copilot, augment) use Registry.AgentsDir
+		// rooted at $HOME.
+		if editor == "claude" {
+			return filepath.Join(p.Location, "agents"), nil
+		}
+		def, ok := Registry[editor]
+		if !ok {
+			return "", fmt.Errorf("unsupported editor: %s", editor)
+		}
+		if def.AgentsDir == "" {
+			return "", fmt.Errorf("editor %q does not expose a separate agents directory", editor)
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("get home dir: %w", err)
+		}
+		return filepath.Join(home, def.AgentsDir), nil
+	}
+	return "", fmt.Errorf("no Revelara plugin installed for editor %q (run: rvl plugin install %s)", editor, editor)
+}
+
+// readFrontmatterDescription scans a markdown file for the YAML frontmatter
+// `description:` line and returns its trimmed value. Returns "" if the file
+// has no frontmatter, no description, or cannot be read.
+func readFrontmatterDescription(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+
+	inFrontmatter := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "---" {
+			if inFrontmatter {
+				return ""
+			}
+			inFrontmatter = true
+			continue
+		}
+		if !inFrontmatter {
+			continue
+		}
+		if strings.HasPrefix(line, "description:") {
+			val := strings.TrimSpace(strings.TrimPrefix(line, "description:"))
+			// Strip a single layer of surrounding quotes (some agents use
+			// quoted scalars in their frontmatter).
+			if len(val) >= 2 {
+				if (val[0] == '"' && val[len(val)-1] == '"') ||
+					(val[0] == '\'' && val[len(val)-1] == '\'') {
+					val = val[1 : len(val)-1]
+				}
+			}
+			return val
+		}
+	}
+	return ""
+}
+
 // RemovePlugin removes an installed plugin (all versions).
 // If projectRoot is non-empty, removes from projectRoot/LocalDir (project-local).
 func RemovePlugin(editor, projectRoot string) error {
@@ -584,7 +722,7 @@ func CmdPlugin(args []string) {
 	editorList := EditorNames()
 
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: rvl plugin <command>\n\nCommands:\n  install <editor>            Install skills for editor (%s)\n  install <editor> --project  Install to current project directory\n  install --all               Auto-detect and install to all editors\n  install --all --project     Auto-detect and install project-locally\n  update [editor]             Update skills to latest version\n  update --all                Update all installed plugins\n  list                        List installed skills\n  editors                     List all supported editors\n  remove <editor>             Remove installed skills\n  remove <editor> --project   Remove project-local skills\n\nExamples:\n  rvl plugin install claude         Install Claude Code plugin\n  rvl plugin install gemini --project  Install to project directory\n  rvl plugin install --all          Install to all detected editors\n  rvl plugin update                 Update all installed plugins\n  rvl plugin editors                Show all supported editors\n  rvl plugin list                   Show installed plugins\n", editorList)
+		fmt.Fprintf(os.Stderr, "Usage: rvl plugin <command>\n\nCommands:\n  install <editor>            Install skills for editor (%s)\n  install <editor> --project  Install to current project directory\n  install --all               Auto-detect and install to all editors\n  install --all --project     Auto-detect and install project-locally\n  update [editor]             Update skills to latest version\n  update --all                Update all installed plugins\n  list                        List installed skills\n  agents [--editor=NAME]      List installed agent lenses (default editor: claude)\n  editors                     List all supported editors\n  remove <editor>             Remove installed skills\n  remove <editor> --project   Remove project-local skills\n\nExamples:\n  rvl plugin install claude         Install Claude Code plugin\n  rvl plugin install gemini --project  Install to project directory\n  rvl plugin install --all          Install to all detected editors\n  rvl plugin update                 Update all installed plugins\n  rvl plugin agents --json          List installed lenses as JSON (used by /rvl:scan)\n  rvl plugin editors                Show all supported editors\n  rvl plugin list                   Show installed plugins\n", editorList)
 		os.Exit(1)
 	}
 
@@ -631,6 +769,8 @@ func CmdPlugin(args []string) {
 		}
 	case "list":
 		ListInstalledPlugins()
+	case "agents":
+		ListInstalledAgents(subArgs)
 	case "editors":
 		listEditors()
 	case "remove", "uninstall":
