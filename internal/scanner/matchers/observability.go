@@ -15,40 +15,12 @@ func observabilityMatchers() []scanner.Matcher {
 	}
 }
 
-// missingHealthEndpoint flags files that register HTTP routes via
-// common Go libraries but do NOT register a /health or /healthz path
-// nearby. The check is per-file and conservative (does not chase
-// imports), so it only fires when the file actually has route
-// declarations.
+// missingHealthEndpoint is now implemented as a heuristic that
+// inspects all route registrations in a file. See
+// missingHealthEndpointHeuristic in health_endpoint_heuristic.go.
+// The shim here keeps the registry stable.
 func missingHealthEndpoint() scanner.Matcher {
-	primary := regexp.MustCompile(`(?m)\b(?:http\.HandleFunc|mux\.Handle\b|router\.(?:GET|POST|HandleFunc|Handle)|app\.(?:get|post|use))\s*\(`)
-	negate := regexp.MustCompile(`/healthz|/health\b|/readyz|/livez`)
-	return scanner.Matcher{
-		Slug:         "missing-health-endpoint",
-		Description:  "HTTP route registration without /health or /healthz",
-		Category:     "monitoring_gaps",
-		ControlCodes: []string{"RC-002"},
-		Languages:    []string{"Go", "JavaScript", "TypeScript"},
-		FilePatterns: []string{"**/*.go", "**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx"},
-		Confidence:   "medium",
-		Severity:     "medium",
-		Impl:         scanner.ImplRegex,
-		Source:       "curated",
-		Patterns: []scanner.Pattern{{
-			Regex:       primary,
-			Label:       "HTTP route registration without /health* nearby",
-			NegateRegex: negate,
-			NegateScope: scanner.NegateScope{Kind: "window", Window: 50},
-		}},
-		Provenance: scanner.Provenance{
-			FailureDescription: "Services without health endpoints get traffic during startup or degradation",
-			IncidentFrequency:  "Common in 'deployed but not ready' incidents",
-			TypicalBlastRadius: "service-level",
-			TypicalMTTR:        "rollback latency",
-			SourcePatternTypes: []string{"failure_mode"},
-			RelatedControls:    []string{"RC-002"},
-		},
-	}
+	return missingHealthEndpointHeuristic()
 }
 
 // noStructuredLogging flags fmt.Println / console.log usage in

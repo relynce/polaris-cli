@@ -129,15 +129,53 @@ func TestGlobalStateMutationGo(t *testing.T) {
 		src  string
 		want bool
 	}{
-		{"bad: mutable counter", "var counter = 0", true},
-		{"good: sync.Mutex nearby", "import \"sync\"\nvar (\n\tmu sync.Mutex\n\tcounter = 0\n)", false},
-		{"good: atomic counter", "import \"sync/atomic\"\nvar counter atomic.Int64\nvar n = atomic.AddInt64(&counter, 1)", false},
+		{"good: declared but never mutated (immutable list)",
+			`package x
+var validEnvs = []string{"a", "b"}
+func F() string { return validEnvs[0] }`,
+			false},
+		{"good: only initialized, never assigned later",
+			`package x
+var counter = 0
+func F() int { return counter }`,
+			false},
+		{"bad: assigned in function body",
+			`package x
+var counter = 0
+func F() { counter = 1 }`,
+			true},
+		{"bad: incremented in function body",
+			`package x
+var counter = 0
+func F() { counter++ }`,
+			true},
+		{"good: assigned only in init()",
+			`package x
+var loaded bool
+func init() { loaded = true }`,
+			false},
+		{"good: var with sync.Mutex type",
+			`package x
+import "sync"
+var (
+    mu sync.Mutex
+    counter = 0
+)
+func F() { mu.Lock(); counter = counter + 1; mu.Unlock() }`,
+			false},
+		{"good: atomic typed var",
+			`package x
+import "sync/atomic"
+var counter atomic.Int64
+func F() { counter.Add(1) }`,
+			false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := matcherCheck(t, m, c.src)
+			cands := m.Check("test.go", []byte(c.src), nil)
+			got := len(cands) > 0
 			if got != c.want {
-				t.Errorf("fired=%v, want %v\nsrc=%q", got, c.want, c.src)
+				t.Errorf("fired=%v, want %v\nsrc=%s\ncands=%+v", got, c.want, c.src, cands)
 			}
 		})
 	}

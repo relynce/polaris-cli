@@ -202,39 +202,9 @@ func emptyCatchMulti() scanner.Matcher {
 	}
 }
 
-// globalStateMutationGo flags package-level var declarations whose
-// values get reassigned outside init(). Mutating shared state from
-// concurrent goroutines causes data races. Negation: declarations
-// containing sync.Mutex or atomic.* are intentionally concurrent-safe.
+// globalStateMutationGo is now implemented via AST inspection — see
+// globalStateMutationASTGo in state_mutation_ast.go. The function is
+// retained as a thin shim for the registry to keep the slug stable.
 func globalStateMutationGo() scanner.Matcher {
-	// Match `var foo = ...` at package scope (line starts with "var ").
-	// Heuristic: only flag var blocks that don't include sync/atomic types.
-	primary := regexp.MustCompile(`(?m)^var\s+\w+\s*=\s*[^/\n]+`)
-	negate := regexp.MustCompile(`\b(sync\.|atomic\.|sync/atomic)\b`)
-	return scanner.Matcher{
-		Slug:         "global-state-mutation",
-		Description:  "Package-level var with non-concurrent-safe initialization",
-		Category:     "fault_tolerance",
-		ControlCodes: []string{"RC-022"},
-		Languages:    []string{"Go"},
-		FilePatterns: []string{"**/*.go"},
-		Confidence:   "medium",
-		Severity:     "medium",
-		Impl:         scanner.ImplRegex,
-		Source:       "curated",
-		Patterns: []scanner.Pattern{{
-			Regex:       primary,
-			Label:       "package-level var is mutable; missing sync primitives nearby",
-			NegateRegex: negate,
-			NegateScope: scanner.NegateScope{Kind: "window", Window: 10},
-		}},
-		Provenance: scanner.Provenance{
-			FailureDescription: "Concurrent mutation of package-level state causes data races and intermittent corruption",
-			IncidentFrequency:  "Observed in 'intermittent corruption' incident patterns (corpus-validation pending)",
-			TypicalBlastRadius: "service-level",
-			TypicalMTTR:        "elevated; race-condition incidents are hard to reproduce",
-			SourcePatternTypes: []string{"failure_mode"},
-			RelatedControls:    []string{"RC-022"},
-		},
-	}
+	return globalStateMutationASTGo()
 }

@@ -41,6 +41,18 @@ func TestPanicInGoroutineFires(t *testing.T) {
 		{"bad: nested goroutine without recover",
 			"func F() { go func() { go func() { panic(\"x\") }() }() }",
 			true},
+		{"good: server-lifecycle goroutine running Serve()",
+			"func F() { go func() { errCh <- srv.Serve(lis) }() }",
+			false},
+		{"good: graceful shutdown goroutine",
+			"func F() { go func() { srv.GracefulStop(); close(stopped) }() }",
+			false},
+		{"good: ListenAndServe with logging",
+			"func F() { go func() { if err := srv.ListenAndServe(); err != nil { log.Warnf(\"x\") } }() }",
+			false},
+		{"bad: business logic goroutine without recover (not server lifecycle)",
+			"func F() { go func() { processWork(item) }() }",
+			true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

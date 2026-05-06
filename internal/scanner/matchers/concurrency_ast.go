@@ -44,6 +44,13 @@ func panicInGoroutine() scanner.Matcher {
 			if hasDeferRecover(lit.Body) {
 				return true
 			}
+			// Whitelist: server-lifecycle goroutines (the canonical
+			// "go func() { srv.Serve(lis) }()" / shutdown drains) are
+			// known not to panic in practice. Suppress to avoid noise
+			// on every gRPC and HTTP server in a real codebase.
+			if bodyIsServerLifecycleOnly(lit.Body) {
+				return true
+			}
 			pos := fset.Position(gs.Pos())
 			out = append(out, scanner.Candidate{
 				Slug:        "panic-in-goroutine",
@@ -118,6 +125,104 @@ func callIsRecover(call *ast.CallExpr) bool {
 	}
 	id, ok := call.Fun.(*ast.Ident)
 	return ok && id.Name == "recover"
+}
+
+// serverLifecycleSelectors is the set of method names that, when they
+// are the primary call inside a goroutine, indicate the goroutine
+// is a server-lifecycle helper — running a Serve loop, draining a
+// graceful shutdown, or waiting on a context. These calls don't
+// panic in practice; flagging them as missing-recover produces noise
+// on every gRPC/HTTP server in a real codebase.
+var serverLifecycleSelectors = map[string]bool{
+	"Serve":              true, // srv.Serve(lis) — gRPC, http.Server
+	"ListenAndServe":     true, // http.Server.ListenAndServe
+	"ListenAndServeTLS":  true,
+	"GracefulStop":       true, // gRPC graceful drain
+	"Shutdown":           true, // http.Server.Shutdown
+	"Stop":               true, // gRPC.Server.Stop, also various library stops
+	"Wait":               true, // sync.WaitGroup.Wait, errgroup.Group.Wait
+	"Run":                true, // ListenAndServe-equivalent for some web frameworks
+}
+
+// loggingFunctionNames are call names treated as benign side effects
+// — they don't change whether a goroutine body counts as
+// "server-lifecycle only" but their presence isn't disqualifying.
+var loggingFunctionNames = map[string]bool{
+	"Println": true, "Printf": true, "Print": true,
+	"Info": true, "Infof": true, "Infoln": true,
+	"Warn": true, "Warnf": true, "Warnln": true,
+	"Error": true, "Errorf": true, "Errorln": true,
+	"Debug": true, "Debugf": true, "Debugln": true,
+	"Fatal": true, "Fatalf": true, "Fatalln": true,
+}
+
+// bodyIsServerLifecycleOnly reports whether body's call expressions
+// are exclusively (a) a recognized server-lifecycle method, (b) a
+// log call, or (c) a builtin like `close` or `cancel`. If yes, the
+// goroutine is a known-safe server lifecycle helper and the
+// panic-in-goroutine matcher suppresses it.
+//
+// The check is conservative: any non-whitelisted call disqualifies
+// the body. Channel sends, returns, and assignments are allowed —
+// only call expressions are inspected.
+func bodyIsServerLifecycleOnly(body *ast.BlockStmt) bool {
+	if body == nil {
+		return false
+	}
+	sawLifecycle := false
+	allowed := true
+	ast.Inspect(body, func(n ast.Node) bool {
+		ce, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if !callIsLifecycleAllowed(ce) {
+			allowed = false
+			return false
+		}
+		if callIsServerLifecycleSelector(ce) {
+			sawLifecycle = true
+		}
+		return true
+	})
+	return allowed && sawLifecycle
+}
+
+// callIsLifecycleAllowed reports whether a single call is one of the
+// allowed call shapes inside a server-lifecycle goroutine.
+func callIsLifecycleAllowed(call *ast.CallExpr) bool {
+	switch fn := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		// pkg.Method() or recv.Method()
+		name := fn.Sel.Name
+		if serverLifecycleSelectors[name] || loggingFunctionNames[name] {
+			return true
+		}
+		// log.Print et al. — conservative: any selector ending in a
+		// known logging name is allowed.
+		return false
+	case *ast.Ident:
+		// Bare identifier: builtin or top-level function call.
+		switch fn.Name {
+		case "close", "cancel", "recover":
+			return true
+		}
+		return false
+	}
+	return false
+}
+
+// callIsServerLifecycleSelector reports whether the call is one of
+// the explicit server-lifecycle methods (Serve, Shutdown, etc.) —
+// i.e., a "primary operation" that justifies treating the goroutine
+// as known-safe. A goroutine that only logs and never serves does
+// not qualify; we still want the matcher to fire on those.
+func callIsServerLifecycleSelector(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	return serverLifecycleSelectors[sel.Sel.Name]
 }
 
 // unboundedConcurrency flags GoStmt nodes nested inside ForStmt or
