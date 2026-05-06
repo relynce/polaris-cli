@@ -1,0 +1,9 @@
+# Acceptance fixture for Phase 1 local scanner.
+# Used by internal/scanner/acceptance_test.go.
+project: phase1-fixture
+criticality: customer-facing
+components:
+  - name: server
+    path: cmd/server/
+  - name: handler
+    path: internal/handler/
