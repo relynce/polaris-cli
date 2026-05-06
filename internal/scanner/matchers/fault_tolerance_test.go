@@ -184,6 +184,33 @@ func loadConfig() { cfg = Config{} }`,
 var catalog []string
 func loadCatalog() { catalog = []string{"x"} }`,
 			true},
+		{"good: helper called only from main (transitive reachability)",
+			`package x
+var cfg string
+func main() { applyDefaults() }
+func applyDefaults() { cfg = "default" }`,
+			false},
+		{"good: deeply nested helper called only from initialize",
+			`package x
+var cfg string
+func InitializeServer() { stage1() }
+func stage1() { stage2() }
+func stage2() { cfg = "x" }`,
+			false},
+		{"bad: helper called from a goroutine spawn",
+			`package x
+var counter int
+func main() { go work() }
+func work() { counter++ }`,
+			true},
+		{"bad: handler registered with mux.HandleFunc",
+			`package x
+var lastSeen string
+func main() {
+    mux.HandleFunc("/x", recordHit)
+}
+func recordHit(w, r) { lastSeen = "now" }`,
+			true},
 		{"good: var with sync.Mutex type",
 			`package x
 import "sync"

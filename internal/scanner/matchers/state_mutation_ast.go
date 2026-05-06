@@ -81,6 +81,13 @@ func globalStateMutationASTGo() scanner.Matcher {
 			return nil
 		}
 
+		// Build a single-file call graph so we can suppress mutations
+		// in functions only reachable from main()/init()/initializer-named
+		// roots (po-fayz.27). Functions reachable from goroutine spawns
+		// or HTTP route registrations are 'concurrent' and remain
+		// flagged.
+		startupOnly := computeStartupOnlyFunctions(f)
+
 		// Walk function bodies for assignments / inc-dec to package vars.
 		var out []scanner.Candidate
 		seen := map[string]bool{} // dedup by file:line
@@ -89,14 +96,12 @@ func globalStateMutationASTGo() scanner.Matcher {
 			if !ok || fd.Body == nil {
 				continue
 			}
-			// Skip init-like functions: Go's own init(), main()
-			// (startup-only), and the canonical "named initializer"
-			// patterns (initializeFoo, setupFoo, bootstrapFoo,
-			// configureFoo). These functions run once during startup
-			// before goroutines are spawned, so package-level mutation
-			// in them is documented configuration, not a race risk.
-			if fd.Recv == nil && fd.Name != nil && isInitLikeFuncName(fd.Name.Name) {
-				continue
+			// Skip explicit init-like names AND functions transitively
+			// reachable only from those names.
+			if fd.Recv == nil && fd.Name != nil {
+				if isInitLikeFuncName(fd.Name.Name) || startupOnly[fd.Name.Name] {
+					continue
+				}
 			}
 			ast.Inspect(fd.Body, func(n ast.Node) bool {
 				switch s := n.(type) {
@@ -162,6 +167,153 @@ func globalStateMutationASTGo() scanner.Matcher {
 			RelatedControls:    []string{"RC-022"},
 		},
 	}
+}
+
+// computeStartupOnlyFunctions builds a single-file call graph and
+// returns the set of function names that are transitively reachable
+// only from {main, init, initialize*, setup*, configure*, bootstrap*,
+// load*Config/Settings/Env}. A function is 'startup-only' iff every
+// caller in this file is itself startup-only AND it is never the
+// target of a goroutine spawn (`go funcName(...)`) or an HTTP route
+// handler argument.
+//
+// Limitations: single-file. Cross-file call sites are invisible, so
+// a helper called from main() in this file but ALSO called from a
+// goroutine in another file is incorrectly suppressed. This is the
+// same scope limit as the rest of the matcher package; whole-package
+// reachability is a future enhancement.
+func computeStartupOnlyFunctions(f *ast.File) map[string]bool {
+	// Pass 1: collect all top-level function names, the set of
+	// callees referenced from within each function's body, and the
+	// set of names spawned via 'go fn()' or registered as HTTP
+	// handlers (these are 'concurrent entry points').
+	calleesByFunc := map[string]map[string]bool{}
+	concurrentEntries := map[string]bool{}
+	allFuncs := map[string]bool{}
+	for _, decl := range f.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok || fd.Recv != nil || fd.Name == nil || fd.Body == nil {
+			continue
+		}
+		name := fd.Name.Name
+		allFuncs[name] = true
+		callees := map[string]bool{}
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			switch s := n.(type) {
+			case *ast.CallExpr:
+				if id, ok := s.Fun.(*ast.Ident); ok {
+					callees[id.Name] = true
+				}
+				// Route registration patterns: 'mux.HandleFunc(...,
+				// myHandler)' — second arg is the function reference.
+				// Conservative: only mark as concurrent entry when the
+				// CALLED function is a known router method.
+				if isRouteRegistrationCall(s) {
+					for _, arg := range s.Args {
+						if id, ok := arg.(*ast.Ident); ok {
+							concurrentEntries[id.Name] = true
+						}
+					}
+				}
+			case *ast.GoStmt:
+				// 'go funcName(...)' — funcName is a concurrent entry.
+				// 'go func() { ... }()' — anonymous, no name to track.
+				if call := s.Call; call != nil {
+					if id, ok := call.Fun.(*ast.Ident); ok {
+						concurrentEntries[id.Name] = true
+					}
+				}
+			}
+			return true
+		})
+		calleesByFunc[name] = callees
+	}
+
+	// Pass 2: identify roots (init-like names) and propagate
+	// reachability. A function is startup-only iff:
+	//   (a) it is an init-like root, OR
+	//   (b) every function that calls it is startup-only AND it is
+	//       not a concurrent entry point.
+	//
+	// We compute the inverse: 'reachable from a non-startup root'.
+	// Anything not so reachable is startup-only.
+	reachableFromConcurrent := map[string]bool{}
+
+	// Seed with concurrent entries: anything spawned via 'go' or
+	// registered as a handler is reachable from concurrency.
+	queue := make([]string, 0, len(concurrentEntries))
+	for name := range concurrentEntries {
+		if allFuncs[name] {
+			reachableFromConcurrent[name] = true
+			queue = append(queue, name)
+		}
+	}
+	// Also: any function NOT init-like AND NOT only called from
+	// init-like callers is treated as 'public surface' that may be
+	// invoked concurrently. We model this conservatively by checking
+	// who calls each function in the file; if a function has no
+	// caller in this file at all, it's external API — assume
+	// concurrent.
+	callersOf := map[string][]string{}
+	for caller, callees := range calleesByFunc {
+		for callee := range callees {
+			callersOf[callee] = append(callersOf[callee], caller)
+		}
+	}
+	for name := range allFuncs {
+		if isInitLikeFuncName(name) {
+			continue
+		}
+		if len(callersOf[name]) == 0 {
+			// No caller in this file — exported or used cross-file;
+			// treat as concurrent.
+			reachableFromConcurrent[name] = true
+			queue = append(queue, name)
+		}
+	}
+
+	// BFS: anything called BY a concurrent function is also concurrent.
+	for len(queue) > 0 {
+		caller := queue[0]
+		queue = queue[1:]
+		for callee := range calleesByFunc[caller] {
+			if !allFuncs[callee] || reachableFromConcurrent[callee] {
+				continue
+			}
+			reachableFromConcurrent[callee] = true
+			queue = append(queue, callee)
+		}
+	}
+
+	// startupOnly = allFuncs - reachableFromConcurrent - init-like
+	// (which are skipped at the call site separately).
+	out := map[string]bool{}
+	for name := range allFuncs {
+		if reachableFromConcurrent[name] {
+			continue
+		}
+		if isInitLikeFuncName(name) {
+			continue
+		}
+		out[name] = true
+	}
+	return out
+}
+
+// isRouteRegistrationCall recognizes the common HTTP route
+// registration shapes whose argument is a handler function we should
+// mark as a concurrent entry point. Conservative: only matches the
+// well-known stdlib / gorilla mux / chi / echo patterns.
+func isRouteRegistrationCall(call *ast.CallExpr) bool {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	switch sel.Sel.Name {
+	case "HandleFunc", "Handle", "GET", "POST", "PUT", "DELETE", "PATCH":
+		return true
+	}
+	return false
 }
 
 // isInitLikeFuncName reports whether a top-level function name
