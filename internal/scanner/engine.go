@@ -106,7 +106,7 @@ func Scan(matchers []Matcher, opts ScanOptions) ([]Candidate, ScanStats, error) 
 		go func() {
 			defer wg.Done()
 			for w := range jobs {
-				localCands, err := scanFile(w.relPath, w.absPath, matchers)
+				localCands, err := scanFile(w.relPath, w.absPath, matchers, opts.IncludeTests)
 				if err != nil {
 					// Soft-fail per file: warn but continue.
 					fmt.Fprintf(os.Stderr, "scanner: skip %s: %v\n", w.relPath, err)
@@ -256,19 +256,18 @@ func walkFiles(root string, opts ScanOptions) ([]walkedFile, int64, error) {
 	return out, bytes, err
 }
 
-func scanFile(relPath, absPath string, matchers []Matcher) ([]Candidate, error) {
+func scanFile(relPath, absPath string, matchers []Matcher, includeTests bool) ([]Candidate, error) {
 	src, err := os.ReadFile(absPath)
 	if err != nil {
 		return nil, err
 	}
 
-	// Pre-compute line offsets so we can map byte offsets to line numbers.
 	lineStarts := computeLineStarts(src)
 	isTest := looksLikeTestFile(relPath)
 
 	var cands []Candidate
 	for _, m := range matchers {
-		if !matcherAppliesToFile(m, relPath, isTest) {
+		if !matcherAppliesToFile(m, relPath, isTest, includeTests) {
 			continue
 		}
 		switch m.Impl {
@@ -276,8 +275,6 @@ func scanFile(relPath, absPath string, matchers []Matcher) ([]Candidate, error) 
 			cands = append(cands, runRegexMatcher(m, relPath, src, lineStarts)...)
 		case ImplAST, ImplHeuristic:
 			if m.Check != nil {
-				// allSrc is nil for AST; po-fayz.5 will pass a populated
-				// map for heuristic matchers that need cross-file context.
 				cands = append(cands, m.Check(relPath, src, nil)...)
 			}
 		}
@@ -402,9 +399,12 @@ func snippetFromOffsets(src []byte, start, end int) string {
 	return s
 }
 
-func matcherAppliesToFile(m Matcher, relPath string, isTest bool) bool {
-	// Test-file gating per-matcher (po-fayz.13 fully wires AppliesToTests).
-	if isTest && !m.AppliesToTests {
+func matcherAppliesToFile(m Matcher, relPath string, isTest, includeTests bool) bool {
+	// Test-file gating: per-matcher AppliesToTests, with a global
+	// IncludeTests override. The override lets the user opt-in
+	// repo-wide via .revelara.yaml scanner.include_tests=true while
+	// still allowing per-matcher control to be the default.
+	if isTest && !m.AppliesToTests && !includeTests {
 		return false
 	}
 	// Excluded patterns first.
