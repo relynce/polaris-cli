@@ -251,6 +251,39 @@ func printLocalSummary(target, service string, findings []scanner.ScanFinding, s
 		fmt.Println("No findings.")
 		return
 	}
+
+	// Category x severity matrix (PRD §Summary table).
+	type catSev struct {
+		cat string
+		sev string
+	}
+	matrix := map[catSev]int{}
+	cats := map[string]bool{}
+	for _, f := range findings {
+		k := catSev{f.Category, strings.ToLower(f.Impact)}
+		matrix[k]++
+		cats[f.Category] = true
+	}
+	severities := []string{"critical", "high", "medium", "low"}
+	catList := make([]string, 0, len(cats))
+	for c := range cats {
+		catList = append(catList, c)
+	}
+	sort.Strings(catList)
+
+	fmt.Printf("\nFindings by category x severity:\n")
+	fmt.Printf("  %-25s %-9s %-9s %-9s %-9s %s\n", "CATEGORY", "CRITICAL", "HIGH", "MEDIUM", "LOW", "TOTAL")
+	for _, c := range catList {
+		var total int
+		row := []int{}
+		for _, s := range severities {
+			n := matrix[catSev{c, s}]
+			row = append(row, n)
+			total += n
+		}
+		fmt.Printf("  %-25s %-9d %-9d %-9d %-9d %d\n", c, row[0], row[1], row[2], row[3], total)
+	}
+
 	fmt.Printf("\nFindings (%d):\n", len(findings))
 	for _, f := range findings {
 		path := ""
@@ -259,9 +292,8 @@ func printLocalSummary(target, service string, findings []scanner.ScanFinding, s
 			path = f.Evidence[0].Path
 			line = f.Evidence[0].LineNumber
 		}
-		fmt.Printf("  [%s] %s\n    %s:%d\n", f.Category, f.Title, path, line)
+		fmt.Printf("  [%s/%s] %s\n    %s:%d\n", f.Category, f.Impact, f.Title, path, line)
 	}
-	// Severity counts.
 	counts := severityCounts(findings)
 	fmt.Printf("\nBy severity: critical=%d high=%d medium=%d low=%d\n",
 		counts["critical"], counts["high"], counts["medium"], counts["low"])
