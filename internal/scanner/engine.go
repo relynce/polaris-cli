@@ -230,10 +230,12 @@ func scanFile(relPath, absPath string, matchers []Matcher) ([]Candidate, error) 
 		switch m.Impl {
 		case ImplRegex, "":
 			cands = append(cands, runRegexMatcher(m, relPath, src, lineStarts)...)
-		case ImplAST:
-			// po-fayz.4 wires this. Skip in tracer bullet.
-		case ImplHeuristic:
-			// po-fayz.5 wires this. Skip in tracer bullet.
+		case ImplAST, ImplHeuristic:
+			if m.Check != nil {
+				// allSrc is nil for AST; po-fayz.5 will pass a populated
+				// map for heuristic matchers that need cross-file context.
+				cands = append(cands, m.Check(relPath, src, nil)...)
+			}
 		}
 	}
 	return cands, nil

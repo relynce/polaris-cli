@@ -89,8 +89,11 @@ type Provenance struct {
 }
 
 // Matcher is a single check the scanner runs against the codebase. Matchers
-// are data, not code — the engine executes them based on Impl. Future org-
-// generated matchers ship as JSON deserialized into the same struct.
+// are mostly data; AST and heuristic matchers carry a code-only Check
+// function which is intentionally not serialized. Future org-generated
+// matchers ship as JSON and use only the regex Patterns field — the
+// generator (Phase 2) will not produce matchers that require semantic
+// understanding.
 type Matcher struct {
 	Slug            string
 	Description     string
@@ -106,6 +109,14 @@ type Matcher struct {
 	Patterns        []Pattern
 	Provenance      Provenance
 	Source          string // "curated" (Phase 1) or "org-generated" (Phase 2)
+
+	// Check is invoked when Impl is ImplAST or ImplHeuristic. The
+	// function is responsible for parsing/inspecting src and returning
+	// any Candidates it finds. relPath is forward-slash, relative to the
+	// scan root. AllSrc gives heuristic matchers access to the full
+	// in-memory file contents (keyed by relPath); AST matchers ignore
+	// it. The field is not serialized to JSON.
+	Check func(relPath string, src []byte, allSrc map[string][]byte) []Candidate `json:"-"`
 }
 
 // Candidate is what the engine emits per match: enough information for

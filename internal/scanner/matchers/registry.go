@@ -19,5 +19,6 @@ import "github.com/revelara-ai/rvl-cli/internal/scanner"
 func AllMatchers() []scanner.Matcher {
 	var out []scanner.Matcher
 	out = append(out, faultToleranceMatchers()...)
+	out = append(out, concurrencyASTMatchers()...)
 	return out
 }
