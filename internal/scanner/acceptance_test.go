@@ -197,18 +197,29 @@ func TestPhase1Acceptance(t *testing.T) {
 	})
 
 	t.Run("findings linked to component", func(t *testing.T) {
-		// At least one finding under cmd/server/ should map to the 'server' component.
-		// Component mapping uses path prefix from .revelara.yaml.
+		// Findings under cmd/server/ should be mapped to {project}/server via
+		// .revelara.yaml. project.MapFindingsToComponents writes the result
+		// into linked_services as "<project>/<component>".
+		want := "phase1-fixture/server"
 		var sawServer bool
 		for _, f := range req.Findings {
+			pathHit := false
 			for _, ev := range f.Evidence {
-				if strings.Contains(ev.Path, "cmd/server") && f.Component == "server" {
-					sawServer = true
+				if strings.Contains(ev.Path, "cmd/server") {
+					pathHit = true
+					break
 				}
+			}
+			if !pathHit {
+				continue
+			}
+			if contains(f.LinkedServices, want) {
+				sawServer = true
+				break
 			}
 		}
 		if !sawServer {
-			t.Errorf("no finding mapped to component=server; findings=%+v", req.Findings)
+			t.Errorf("no finding under cmd/server/ has linked_services=%q; findings=%+v", want, req.Findings)
 		}
 	})
 }
