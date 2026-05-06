@@ -54,6 +54,13 @@ type ScanMetadata struct {
 	SkillName     string `json:"skill_name,omitempty"`
 	SkillVersion  string `json:"skill_version,omitempty"`
 	SkillChecksum string `json:"skill_checksum,omitempty"`
+
+	// Local-scanner additions (po-fayz.14 mirrors these on Polaris).
+	// MatcherVersion is the matcher set version that produced findings;
+	// ExcludedMatchers is the list of slugs the user suppressed via
+	// .revelara.yaml so Polaris can drive the Phase 2 feedback loop.
+	MatcherVersion   string   `json:"matcher_version,omitempty"`
+	ExcludedMatchers []string `json:"excluded_matchers,omitempty"`
 }
 
 // ScanStackInfo holds detected technology stack information.

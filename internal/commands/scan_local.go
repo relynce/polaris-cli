@@ -87,12 +87,38 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	if opts.matchersFlag != "" {
 		scanOpts.OnlyMatchers = splitCSV(opts.matchersFlag)
 	}
+
+	// .revelara.yaml `scanner` overrides. PRD §Configuration in
+	// .revelara.yaml: optional, ignored if absent.
+	var excludedMatcherSlugs []string
+	if projectCfg != nil && projectCfg.Scanner != nil {
+		sc := projectCfg.Scanner
+		if len(sc.ExcludeMatchers) > 0 {
+			scanOpts.ExcludeMatchers = make(map[string]bool, len(sc.ExcludeMatchers))
+			for _, s := range sc.ExcludeMatchers {
+				scanOpts.ExcludeMatchers[s] = true
+				excludedMatcherSlugs = append(excludedMatcherSlugs, s)
+			}
+		}
+		if len(sc.ExcludePaths) > 0 {
+			scanOpts.ExcludePaths = sc.ExcludePaths
+		}
+		if sc.ConfidenceThreshold != "" {
+			scanOpts.ConfidenceMin = sc.ConfidenceThreshold
+		}
+		if sc.IncludeTests {
+			scanOpts.IncludeTests = true
+		}
+	}
 	if opts.changedOnly {
-		// Build the resolution config from flag + environment (po-fayz.12
-		// will add the .revelara.yaml scanner.base_ref source).
+		var yamlBaseRef string
+		if projectCfg != nil && projectCfg.Scanner != nil {
+			yamlBaseRef = projectCfg.Scanner.BaseRef
+		}
 		envCfg := scanner.ChangedOnlyConfig{
 			Root:        absTarget,
 			FlagBaseRef: opts.baseRef,
+			YAMLBaseRef: yamlBaseRef,
 			Env: map[string]string{
 				"RVL_BASE_REF":                          os.Getenv("RVL_BASE_REF"),
 				"GITHUB_BASE_REF":                       os.Getenv("GITHUB_BASE_REF"),
@@ -155,7 +181,7 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 		writeLocalJSON(service, asInterfaces)
 	}
 	if opts.submit {
-		submitLocalScan(cliVersion, service, projectCfg, asInterfaces)
+		submitLocalScan(cliVersion, service, projectCfg, asInterfaces, excludedMatcherSlugs)
 	}
 	if !strings.EqualFold(opts.format, "json") && !opts.submit {
 		printLocalSummary(absTarget, service, findings, stats)
@@ -181,16 +207,18 @@ func writeLocalJSON(service string, findings []interface{}) {
 	}
 }
 
-func submitLocalScan(cliVersion, service string, cfg *project.ProjectConfig, findings []interface{}) {
+func submitLocalScan(cliVersion, service string, cfg *project.ProjectConfig, findings []interface{}, excludedMatchers []string) {
 	apiCfg := api.LoadAndResolveConfig()
 	scanReq := ScanRequest{
 		Service:  service,
 		ScanType: "full",
 		Findings: findings,
 		Metadata: ScanMetadata{
-			ScannerID:    "rvl-local-scanner-" + scannerVersion,
-			SkillName:    "rvl-local-scanner",
-			SkillVersion: scannerVersion,
+			ScannerID:        "rvl-local-scanner-" + scannerVersion,
+			SkillName:        "rvl-local-scanner",
+			SkillVersion:     scannerVersion,
+			MatcherVersion:   scannerVersion,
+			ExcludedMatchers: excludedMatchers,
 		},
 	}
 	if cfg != nil {
