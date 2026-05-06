@@ -110,6 +110,16 @@ type Matcher struct {
 	Provenance      Provenance
 	Source          string // "curated" (Phase 1) or "org-generated" (Phase 2)
 
+	// po-qs96.2: Floor matchers signal compliance/security failures that
+	// are not reliability tradeoffs. When the org or service has
+	// strict_enforcement: true, findings from floor matchers bypass the
+	// standard waiver path and require emergency override. When
+	// strict_enforcement is false (default), floor: true is metadata
+	// only — the finding scores and waives like any other matcher.
+	// Initial floor set: raw-sql-no-params, hardcoded-connection-string,
+	// terraform-no-encryption.
+	Floor bool
+
 	// Check is invoked when Impl is ImplAST or ImplHeuristic. The
 	// function is responsible for parsing/inspecting src and returning
 	// any Candidates it finds.

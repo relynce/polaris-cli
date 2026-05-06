@@ -29,12 +29,28 @@ type ProjectConfig struct {
 //	  confidence_threshold: medium
 //	  base_ref: origin/develop
 //	  include_tests: false
+//	  tolerance:
+//	    target: 200
+//	    headroom_pct: 10
+//	  strict_enforcement: false
 type ScannerConfig struct {
-	ExcludeMatchers     []string `yaml:"exclude_matchers,omitempty"`
-	ExcludePaths        []string `yaml:"exclude_paths,omitempty"`
-	ConfidenceThreshold string   `yaml:"confidence_threshold,omitempty"`
-	BaseRef             string   `yaml:"base_ref,omitempty"`
-	IncludeTests        bool     `yaml:"include_tests,omitempty"`
+	ExcludeMatchers     []string         `yaml:"exclude_matchers,omitempty"`
+	ExcludePaths        []string         `yaml:"exclude_paths,omitempty"`
+	ConfidenceThreshold string           `yaml:"confidence_threshold,omitempty"`
+	BaseRef             string           `yaml:"base_ref,omitempty"`
+	IncludeTests        bool             `yaml:"include_tests,omitempty"`
+	Tolerance           *ToleranceConfig `yaml:"tolerance,omitempty"`
+	StrictEnforcement   *bool            `yaml:"strict_enforcement,omitempty"`
+}
+
+// ToleranceConfig is the per-service tolerance override that flows from
+// .revelara.yaml to the Polaris CI gate via the scan submission. Each
+// field is a pointer so unset fields fall through to org-level defaults
+// (most-specific wins). Reference: docs/designs/local-scanner-developer-workflow.md
+// in the polaris repo.
+type ToleranceConfig struct {
+	Target      *int `yaml:"target,omitempty"`
+	HeadroomPct *int `yaml:"headroom_pct,omitempty"`
 }
 
 // CriticalityScore maps the human-friendly criticality label to a float64 (0.0-1.0)

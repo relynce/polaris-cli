@@ -36,6 +36,23 @@ type ScanRequest struct {
 	Dependencies []ScanDependency `json:"dependencies,omitempty"`
 	CatalogMeta         *ScanCatalogMeta `json:"catalog_meta,omitempty"`
 	BusinessCriticality *float64         `json:"business_criticality,omitempty"`
+
+	// po-qs96.2: per-service tolerance override carried from .revelara.yaml
+	// `scanner.tolerance` and `scanner.strict_enforcement` to the Polaris CI
+	// gate. Polaris merges this over org-level defaults via ResolveTolerance
+	// (most-specific wins) — see docs/designs/local-scanner-developer-workflow.md
+	// in the polaris repo.
+	ServiceTolerance *ServiceToleranceConfig `json:"service_tolerance,omitempty"`
+}
+
+// ServiceToleranceConfig mirrors polaris-side ServiceToleranceConfig
+// exactly. Pointer fields distinguish "unset" from "zero value" so the
+// resolver can fall through to org defaults for any field the service
+// did not explicitly override.
+type ServiceToleranceConfig struct {
+	ToleranceTarget      *int  `json:"tolerance_target,omitempty"`
+	ToleranceHeadroomPct *int  `json:"tolerance_headroom_pct,omitempty"`
+	StrictEnforcement    *bool `json:"strict_enforcement,omitempty"`
 }
 
 // ScanControlStructureData is the control structure portion of a scan request.

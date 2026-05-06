@@ -197,6 +197,37 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	exitOnSeverity(findings)
 }
 
+// buildServiceToleranceConfig translates the .revelara.yaml `scanner`
+// section into the wire shape Polaris consumes. Returns nil when the
+// service has not overridden any tolerance fields so the request stays
+// compact and the resolver naturally falls through to org defaults.
+// po-qs96.2 / docs/designs/local-scanner-developer-workflow.md (polaris).
+func buildServiceToleranceConfig(sc *project.ScannerConfig) *ServiceToleranceConfig {
+	if sc == nil {
+		return nil
+	}
+	out := &ServiceToleranceConfig{}
+	any := false
+	if sc.Tolerance != nil {
+		if sc.Tolerance.Target != nil {
+			out.ToleranceTarget = sc.Tolerance.Target
+			any = true
+		}
+		if sc.Tolerance.HeadroomPct != nil {
+			out.ToleranceHeadroomPct = sc.Tolerance.HeadroomPct
+			any = true
+		}
+	}
+	if sc.StrictEnforcement != nil {
+		out.StrictEnforcement = sc.StrictEnforcement
+		any = true
+	}
+	if !any {
+		return nil
+	}
+	return out
+}
+
 func writeLocalJSON(service string, findings []interface{}) {
 	out := map[string]interface{}{
 		"service":   service,
@@ -232,6 +263,12 @@ func submitLocalScan(cliVersion, service string, cfg *project.ProjectConfig, fin
 	if cfg != nil {
 		if crit := cfg.CriticalityScore(); crit > 0 {
 			scanReq.BusinessCriticality = &crit
+		}
+		// po-qs96.2: per-service tolerance flows to the Polaris CI gate
+		// when set in .revelara.yaml `scanner.tolerance` and/or
+		// `scanner.strict_enforcement`. Polaris merges over org defaults.
+		if svcTol := buildServiceToleranceConfig(cfg.Scanner); svcTol != nil {
+			scanReq.ServiceTolerance = svcTol
 		}
 	}
 
@@ -286,11 +323,17 @@ func runListMatchers(sourceFilter, format string) {
 	}
 
 	// Human-readable: one row per matcher, then a Provenance block.
-	fmt.Printf("%-32s %-22s %-7s %-7s %-9s %s\n", "SLUG", "CATEGORY", "CONF", "SEV", "SOURCE", "LANGS")
-	fmt.Println(strings.Repeat("-", 100))
+	// po-qs96.2: FLOOR badge marks matchers that bypass the standard
+	// waiver path under strict_enforcement.
+	fmt.Printf("%-32s %-22s %-7s %-7s %-9s %-7s %s\n", "SLUG", "CATEGORY", "CONF", "SEV", "SOURCE", "FLOOR", "LANGS")
+	fmt.Println(strings.Repeat("-", 110))
 	for _, m := range filtered {
-		fmt.Printf("%-32s %-22s %-7s %-7s %-9s %s\n",
-			m.Slug, m.Category, m.Confidence, m.Severity, m.Source, strings.Join(m.Languages, ","))
+		floor := ""
+		if m.Floor {
+			floor = "[FLOOR]"
+		}
+		fmt.Printf("%-32s %-22s %-7s %-7s %-9s %-7s %s\n",
+			m.Slug, m.Category, m.Confidence, m.Severity, m.Source, floor, strings.Join(m.Languages, ","))
 	}
 	fmt.Println()
 	for _, m := range filtered {

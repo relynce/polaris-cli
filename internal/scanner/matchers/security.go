@@ -38,6 +38,7 @@ func hardcodedConnectionString() scanner.Matcher {
 		Severity:       "high",
 		Impl:           scanner.ImplRegex,
 		Source:         "curated",
+		Floor:          true, // po-qs96.2: credential exposure is a compliance/security failure, not a reliability tradeoff
 		Patterns: []scanner.Pattern{{
 			Regex:       primary,
 			Label:       "credential-bearing connection string literal",
@@ -77,6 +78,7 @@ func rawSQLNoParams() scanner.Matcher {
 		Severity:       "high",
 		Impl:           scanner.ImplRegex,
 		Source:         "curated",
+		Floor:          true, // po-qs96.2: SQL injection is a compliance/security failure, not a reliability tradeoff
 		Patterns: []scanner.Pattern{
 			{
 				Regex:       concat,
