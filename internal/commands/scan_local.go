@@ -149,19 +149,17 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 		project.MapFindingsToComponents(asInterfaces, projectCfg)
 	}
 
-	if opts.submit {
-		submitLocalScan(cliVersion, service, projectCfg, asInterfaces)
-		exitOnSeverity(findings)
-		return
-	}
-
+	// --format json prints the JSON shape, regardless of --submit.
+	// --submit posts to Polaris (after JSON is printed when both are set).
 	if strings.EqualFold(opts.format, "json") {
 		writeLocalJSON(service, asInterfaces)
-		exitOnSeverity(findings)
-		return
 	}
-
-	printLocalSummary(absTarget, service, findings, stats)
+	if opts.submit {
+		submitLocalScan(cliVersion, service, projectCfg, asInterfaces)
+	}
+	if !strings.EqualFold(opts.format, "json") && !opts.submit {
+		printLocalSummary(absTarget, service, findings, stats)
+	}
 	exitOnSeverity(findings)
 }
 
