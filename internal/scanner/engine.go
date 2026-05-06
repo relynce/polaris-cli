@@ -441,3 +441,20 @@ func max(a, b int) int {
 	}
 	return b
 }
+
+// MatcherFiresOnSource is a unit-test helper that runs a matcher's regex
+// patterns (with their negation scopes applied) against an in-memory
+// source buffer and reports whether any candidate fires. Used by matcher
+// unit tests in the matchers/ package to avoid setting up filesystem
+// fixtures for every assertion.
+//
+// The helper handles regex impl only; AST and heuristic matchers must be
+// tested with their own dispatch.
+func MatcherFiresOnSource(m Matcher, relPath string, src []byte) bool {
+	if m.Impl != ImplRegex && m.Impl != "" {
+		return false
+	}
+	starts := computeLineStarts(src)
+	cands := runRegexMatcher(m, relPath, src, starts)
+	return len(cands) > 0
+}
