@@ -29,7 +29,9 @@ func AllMatchers() []scanner.Matcher {
 // or AST block walking. They ship at lower confidence because the
 // heuristic by design accepts some false positives.
 func heuristicMatchers() []scanner.Matcher {
-	return []scanner.Matcher{
+	out := []scanner.Matcher{
 		missingCircuitBreaker(),
 	}
+	out = append(out, iacMatchers()...)
+	return out
 }
