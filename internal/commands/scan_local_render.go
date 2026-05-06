@@ -96,31 +96,112 @@ func renderScanReportMarkdown(target, service string, findings []scanner.ScanFin
 	return sb.String()
 }
 
-// renderFindingsTable produces a markdown table for a list of
-// findings: Finding | Category | Location. Sized to scan quickly:
-// repeating titles align vertically, and the location column is the
-// only thing that varies row to row when matchers fire on similar
-// patterns across files.
+// renderFindingsTable groups findings by (category, title), renders a
+// summary table with one row per group plus a count, then writes a
+// definition-list-style sub-section per group with the location bullets.
+//
+// The layout pattern: scannable summary at the top so the reader sees
+// "what kinds of issues exist and how many", then drill-down detail
+// underneath when they want specific paths.
+//
+// Column order is Category, Finding, Locations — category comes
+// first because grouping by category is how reliability work is
+// usually triaged.
 func renderFindingsTable(findings []scanner.ScanFinding) string {
 	if len(findings) == 0 {
 		return ""
 	}
+	groups := groupFindings(findings)
+
 	var sb strings.Builder
-	sb.WriteString("| Finding | Category | Location |\n")
-	sb.WriteString("|---------|----------|----------|\n")
+	sb.WriteString("| Category | Finding | Locations |\n")
+	sb.WriteString("|----------|---------|----------:|\n")
+	for _, g := range groups {
+		fmt.Fprintf(&sb, "| `%s` | %s | %d |\n",
+			g.Category, escapeTableCell(g.Title), len(g.Locations))
+	}
+	sb.WriteString("\n")
+
+	// Drill-down: one bullet per group, locations as nested bullets.
+	// Skipped when every group is a single-location entry (the table
+	// above already conveys everything).
+	if !allGroupsAreSingleLocation(groups) {
+		sb.WriteString("**Locations:**\n\n")
+		for _, g := range groups {
+			fmt.Fprintf(&sb, "- `%s` / %s — %d location%s\n",
+				g.Category, g.Title, len(g.Locations), pluralS(len(g.Locations)))
+			for _, loc := range g.Locations {
+				fmt.Fprintf(&sb, "    - `%s`\n", loc)
+			}
+		}
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+// findingGroup collects all locations for one (category, title) pair.
+type findingGroup struct {
+	Category  string
+	Title     string
+	Locations []string // formatted "path:line", deduped, in walk order
+}
+
+func groupFindings(findings []scanner.ScanFinding) []findingGroup {
+	type key struct{ cat, title string }
+	byKey := map[key]*findingGroup{}
+	order := []key{} // preserve first-seen order for stable output
+
 	for _, f := range findings {
 		category := f.Category
 		if category == "" {
 			category = "uncategorized"
 		}
-		title := escapeTableCell(f.Title)
-		loc := "—"
-		if len(f.Evidence) > 0 && f.Evidence[0].Path != "" {
-			loc = fmt.Sprintf("`%s:%d`", escapeTableCell(f.Evidence[0].Path), f.Evidence[0].LineNumber)
+		k := key{category, f.Title}
+		g, ok := byKey[k]
+		if !ok {
+			g = &findingGroup{Category: category, Title: f.Title}
+			byKey[k] = g
+			order = append(order, k)
 		}
-		fmt.Fprintf(&sb, "| %s | `%s` | %s |\n", title, category, loc)
+		if len(f.Evidence) > 0 && f.Evidence[0].Path != "" {
+			g.Locations = append(g.Locations, fmt.Sprintf("%s:%d", f.Evidence[0].Path, f.Evidence[0].LineNumber))
+		}
 	}
-	return sb.String()
+
+	out := make([]findingGroup, 0, len(order))
+	for _, k := range order {
+		g := byKey[k]
+		out = append(out, *g)
+	}
+	// Sort by category, then descending location count, then title —
+	// puts the loudest groups in each category first, which is what
+	// readers want to triage.
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Category != out[j].Category {
+			return out[i].Category < out[j].Category
+		}
+		if len(out[i].Locations) != len(out[j].Locations) {
+			return len(out[i].Locations) > len(out[j].Locations)
+		}
+		return out[i].Title < out[j].Title
+	})
+	return out
+}
+
+func allGroupsAreSingleLocation(groups []findingGroup) bool {
+	for _, g := range groups {
+		if len(g.Locations) > 1 {
+			return false
+		}
+	}
+	return true
+}
+
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // escapeTableCell escapes the markdown table separator so titles or
