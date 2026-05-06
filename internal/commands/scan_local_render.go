@@ -89,28 +89,45 @@ func renderScanReportMarkdown(target, service string, findings []scanner.ScanFin
 		}
 		fmt.Fprintf(&sb, "## %s %s severity (%d)\n\n",
 			severityIcon(sev), strings.Title(sev), len(fs))
-		for _, f := range fs {
-			path := ""
-			line := 0
-			if len(f.Evidence) > 0 {
-				path = f.Evidence[0].Path
-				line = f.Evidence[0].LineNumber
-			}
-			category := f.Category
-			if category == "" {
-				category = "uncategorized"
-			}
-			if path != "" {
-				fmt.Fprintf(&sb, "- **%s** &nbsp;`[%s]`  \n  `%s:%d`\n",
-					f.Title, category, path, line)
-			} else {
-				fmt.Fprintf(&sb, "- **%s** &nbsp;`[%s]`\n", f.Title, category)
-			}
-		}
+		sb.WriteString(renderFindingsTable(fs))
 		sb.WriteString("\n")
 	}
 
 	return sb.String()
+}
+
+// renderFindingsTable produces a markdown table for a list of
+// findings: Finding | Category | Location. Sized to scan quickly:
+// repeating titles align vertically, and the location column is the
+// only thing that varies row to row when matchers fire on similar
+// patterns across files.
+func renderFindingsTable(findings []scanner.ScanFinding) string {
+	if len(findings) == 0 {
+		return ""
+	}
+	var sb strings.Builder
+	sb.WriteString("| Finding | Category | Location |\n")
+	sb.WriteString("|---------|----------|----------|\n")
+	for _, f := range findings {
+		category := f.Category
+		if category == "" {
+			category = "uncategorized"
+		}
+		title := escapeTableCell(f.Title)
+		loc := "—"
+		if len(f.Evidence) > 0 && f.Evidence[0].Path != "" {
+			loc = fmt.Sprintf("`%s:%d`", escapeTableCell(f.Evidence[0].Path), f.Evidence[0].LineNumber)
+		}
+		fmt.Fprintf(&sb, "| %s | `%s` | %s |\n", title, category, loc)
+	}
+	return sb.String()
+}
+
+// escapeTableCell escapes the markdown table separator so titles or
+// paths containing a literal `|` don't break column alignment.
+// Glamour reflows on `|` even inside backtick-quoted text.
+func escapeTableCell(s string) string {
+	return strings.ReplaceAll(s, "|", `\|`)
 }
 
 // renderCategoryMatrix produces the markdown table for the

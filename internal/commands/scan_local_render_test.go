@@ -33,6 +33,7 @@ func TestRenderScanReportMarkdownGroupsBySeverity(t *testing.T) {
 		"## 🟠 High severity (1)",
 		"## 🟡 Medium severity (1)",
 		"## ⚪ Low severity (1)",
+		"| Finding | Category | Location |",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing severity section %q in:\n%s", want, out)
@@ -41,6 +42,25 @@ func TestRenderScanReportMarkdownGroupsBySeverity(t *testing.T) {
 	// Critical section should NOT render when no critical findings.
 	if strings.Contains(out, "Critical severity (") {
 		t.Errorf("unexpected empty Critical section in:\n%s", out)
+	}
+}
+
+func TestRenderFindingsTableEscapesPipe(t *testing.T) {
+	findings := []scanner.ScanFinding{
+		{
+			Title:    "title with | pipe",
+			Category: "x",
+			Impact:   "high",
+			Evidence: []scanner.ScanEvidence{{Path: "a|b.go", LineNumber: 1}},
+		},
+	}
+	out := renderFindingsTable(findings)
+	// Both pipe-containing values must appear escaped.
+	if !strings.Contains(out, `title with \| pipe`) {
+		t.Errorf("title pipe not escaped:\n%s", out)
+	}
+	if !strings.Contains(out, `a\|b.go`) {
+		t.Errorf("path pipe not escaped:\n%s", out)
 	}
 }
 
