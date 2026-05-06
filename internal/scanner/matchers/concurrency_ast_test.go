@@ -8,7 +8,7 @@ func panicInGoroutineFires(t *testing.T, body string) bool {
 	t.Helper()
 	m := panicInGoroutine()
 	src := []byte(goPreamble + body)
-	cands := m.Check("test.go", src, nil)
+	cands := m.Check("/abs/test.go", "test.go", src)
 	return len(cands) > 0
 }
 
@@ -16,7 +16,7 @@ func unboundedConcurrencyFires(t *testing.T, body string) bool {
 	t.Helper()
 	m := unboundedConcurrency()
 	src := []byte(goPreamble + body)
-	cands := m.Check("test.go", src, nil)
+	cands := m.Check("/abs/test.go", "test.go", src)
 	return len(cands) > 0
 }
 

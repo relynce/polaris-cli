@@ -43,7 +43,7 @@ mux.HandleFunc("/api/users", users)`,
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			cands := m.Check("test.go", []byte(c.src), nil)
+			cands := m.Check("/abs/test.go", "test.go", []byte(c.src))
 			got := len(cands) > 0
 			if got != c.want {
 				t.Errorf("fired=%v, want %v\ncands=%+v", got, c.want, cands)

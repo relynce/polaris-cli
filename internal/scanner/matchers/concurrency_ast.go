@@ -23,7 +23,7 @@ func concurrencyASTMatchers() []scanner.Matcher {
 // inside the goroutine crashes the entire process — observed in
 // "unexpected restart loop" incidents.
 func panicInGoroutine() scanner.Matcher {
-	check := func(relPath string, src []byte, _ map[string][]byte) []scanner.Candidate {
+	check := func(_ string, relPath string, src []byte) []scanner.Candidate {
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, relPath, src, parser.ParseComments)
 		if err != nil {
@@ -230,7 +230,7 @@ func callIsServerLifecycleSelector(call *ast.CallExpr) bool {
 // loop body. Matches the common goroutine-leak pattern that causes OOM
 // kills under burst traffic.
 func unboundedConcurrency() scanner.Matcher {
-	check := func(relPath string, src []byte, _ map[string][]byte) []scanner.Candidate {
+	check := func(_ string, relPath string, src []byte) []scanner.Candidate {
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, relPath, src, parser.ParseComments)
 		if err != nil {

@@ -36,7 +36,7 @@ var outboundCallImports = []string{
 // library. Confidence is intentionally low — false positives on
 // intentional fail-fast paths are inherent in the approach.
 func missingCircuitBreaker() scanner.Matcher {
-	check := func(relPath string, src []byte, _ map[string][]byte) []scanner.Candidate {
+	check := func(_ string, relPath string, src []byte) []scanner.Candidate {
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, relPath, src, parser.ImportsOnly)
 		if err != nil {

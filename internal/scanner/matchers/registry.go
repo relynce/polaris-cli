@@ -24,6 +24,8 @@ func AllMatchers() []scanner.Matcher {
 	out = append(out, observabilityMatchers()...)
 	out = append(out, securityMatchers()...)
 	out = append(out, devPracticesMatchers()...)
+	out = append(out, migrationMatchers()...)
+	out = append(out, unboundedBuffer())
 	return out
 }
 

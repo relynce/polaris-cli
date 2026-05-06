@@ -47,7 +47,7 @@ var dedicatedSinglePurposePrefixes = []string{
 // server registers only /metrics and the main app's /health lives
 // elsewhere.
 func missingHealthEndpointHeuristic() scanner.Matcher {
-	check := func(relPath string, src []byte, _ map[string][]byte) []scanner.Candidate {
+	check := func(_ string, relPath string, src []byte) []scanner.Candidate {
 		matches := routeRegistrationRe.FindAllSubmatchIndex(src, -1)
 		if len(matches) == 0 {
 			return nil

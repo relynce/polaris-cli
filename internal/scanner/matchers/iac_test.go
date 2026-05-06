@@ -52,7 +52,7 @@ metadata:
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			cands := m.Check("d.yaml", []byte(c.src), nil)
+			cands := m.Check("/abs/d.yaml", "d.yaml", []byte(c.src))
 			if (len(cands) > 0) != c.want {
 				t.Errorf("fired=%v, want %v", len(cands) > 0, c.want)
 			}
@@ -83,10 +83,10 @@ spec:
             limits:
               cpu: 200m
 `
-	if cands := m.Check("d.yaml", []byte(bad), nil); len(cands) == 0 {
+	if cands := m.Check("/abs/d.yaml", "d.yaml", []byte(bad)); len(cands) == 0 {
 		t.Error("expected match on missing limits")
 	}
-	if cands := m.Check("d.yaml", []byte(good), nil); len(cands) != 0 {
+	if cands := m.Check("/abs/d.yaml", "d.yaml", []byte(good)); len(cands) != 0 {
 		t.Errorf("unexpected match when limits present: %+v", cands)
 	}
 }
@@ -95,10 +95,10 @@ func TestDockerfileNoHealthcheck(t *testing.T) {
 	m := dockerfileNoHealthcheck()
 	bad := "FROM alpine\nCMD [\"app\"]\n"
 	good := "FROM alpine\nHEALTHCHECK CMD wget -q http://localhost/healthz\nCMD [\"app\"]\n"
-	if cands := m.Check("Dockerfile", []byte(bad), nil); len(cands) == 0 {
+	if cands := m.Check("/abs/Dockerfile", "Dockerfile", []byte(bad)); len(cands) == 0 {
 		t.Error("expected match on missing HEALTHCHECK")
 	}
-	if cands := m.Check("Dockerfile", []byte(good), nil); len(cands) != 0 {
+	if cands := m.Check("/abs/Dockerfile", "Dockerfile", []byte(good)); len(cands) != 0 {
 		t.Errorf("unexpected match when HEALTHCHECK present: %+v", cands)
 	}
 }
@@ -141,7 +141,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "x" {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			cands := m.Check("main.tf", []byte(c.src), nil)
+			cands := m.Check("/abs/main.tf", "main.tf", []byte(c.src))
 			if (len(cands) > 0) != c.want {
 				t.Errorf("fired=%v, want %v", len(cands) > 0, c.want)
 			}

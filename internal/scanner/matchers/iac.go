@@ -152,7 +152,7 @@ type missingFieldSpec struct {
 // k8sMissingFieldMatcher builds a heuristic matcher that scans
 // Deployment/StatefulSet/DaemonSet documents for an absent field.
 func k8sMissingFieldMatcher(spec missingFieldSpec) scanner.Matcher {
-	check := func(relPath string, src []byte, _ map[string][]byte) []scanner.Candidate {
+	check := func(_ string, relPath string, src []byte) []scanner.Candidate {
 		var out []scanner.Candidate
 		fieldRe := regexp.MustCompile(regexp.QuoteMeta(spec.Field))
 		for _, doc := range splitYAMLDocs(src) {
@@ -199,7 +199,7 @@ func k8sMissingFieldMatcher(spec missingFieldSpec) scanner.Matcher {
 // dockerfileNoHealthcheck flags Dockerfiles without a HEALTHCHECK
 // instruction.
 func dockerfileNoHealthcheck() scanner.Matcher {
-	check := func(relPath string, src []byte, _ map[string][]byte) []scanner.Candidate {
+	check := func(_ string, relPath string, src []byte) []scanner.Candidate {
 		text := string(src)
 		// Quick check: is this a Dockerfile? File-pattern matching
 		// already filters, so the engine only invokes this for
@@ -244,7 +244,7 @@ func dockerfileNoHealthcheck() scanner.Matcher {
 // terraformNoEncryption flags AWS S3 buckets, RDS instances, and EBS
 // volumes that don't configure encryption.
 func terraformNoEncryption() scanner.Matcher {
-	check := func(relPath string, src []byte, _ map[string][]byte) []scanner.Candidate {
+	check := func(_ string, relPath string, src []byte) []scanner.Candidate {
 		text := string(src)
 		var out []scanner.Candidate
 

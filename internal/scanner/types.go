@@ -112,11 +112,17 @@ type Matcher struct {
 
 	// Check is invoked when Impl is ImplAST or ImplHeuristic. The
 	// function is responsible for parsing/inspecting src and returning
-	// any Candidates it finds. relPath is forward-slash, relative to the
-	// scan root. AllSrc gives heuristic matchers access to the full
-	// in-memory file contents (keyed by relPath); AST matchers ignore
-	// it. The field is not serialized to JSON.
-	Check func(relPath string, src []byte, allSrc map[string][]byte) []Candidate `json:"-"`
+	// any Candidates it finds.
+	//
+	//   - absPath is the file's absolute path on disk. Matchers that
+	//     need to inspect sibling files (e.g., rollback-migration
+	//     looking for *.down.sql next to *.up.sql) use this.
+	//   - relPath is forward-slash, relative to the scan root.
+	//   - src is the file contents.
+	//
+	// The field is not serialized to JSON; AST matchers built from
+	// org-generated JSON cannot supply a function pointer.
+	Check func(absPath, relPath string, src []byte) []Candidate `json:"-"`
 }
 
 // Candidate is what the engine emits per match: enough information for

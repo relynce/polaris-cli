@@ -25,7 +25,7 @@ import (
 // The matcher reports the mutation site, not the declaration, because
 // that is the line the developer needs to look at.
 func globalStateMutationASTGo() scanner.Matcher {
-	check := func(relPath string, src []byte, _ map[string][]byte) []scanner.Candidate {
+	check := func(_ string, relPath string, src []byte) []scanner.Candidate {
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, relPath, src, parser.ParseComments)
 		if err != nil {

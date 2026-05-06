@@ -5,7 +5,7 @@ import "testing"
 func cbMatcherFires(t *testing.T, src string) bool {
 	t.Helper()
 	m := missingCircuitBreaker()
-	cands := m.Check("test.go", []byte(src), nil)
+	cands := m.Check("/abs/test.go", "test.go", []byte(src))
 	return len(cands) > 0
 }
 

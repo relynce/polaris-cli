@@ -275,7 +275,7 @@ func scanFile(relPath, absPath string, matchers []Matcher, includeTests bool) ([
 			cands = append(cands, runRegexMatcher(m, relPath, src, lineStarts)...)
 		case ImplAST, ImplHeuristic:
 			if m.Check != nil {
-				cands = append(cands, m.Check(relPath, src, nil)...)
+				cands = append(cands, m.Check(absPath, relPath, src)...)
 			}
 		}
 	}
