@@ -154,6 +154,36 @@ func F() { counter++ }`,
 var loaded bool
 func init() { loaded = true }`,
 			false},
+		{"good: assigned in main()",
+			`package x
+var baseURL string
+func main() { baseURL = "http://example.com" }`,
+			false},
+		{"good: assigned in initializeLogger",
+			`package x
+var log Logger
+func initializeLogger() { log = Logger{} }`,
+			false},
+		{"good: assigned in InitializeLogger",
+			`package x
+var log Logger
+func InitializeLogger() { log = Logger{} }`,
+			false},
+		{"good: assigned in setupConfig",
+			`package x
+var cfg Config
+func setupConfig() { cfg = Config{} }`,
+			false},
+		{"good: assigned in loadConfig",
+			`package x
+var cfg Config
+func loadConfig() { cfg = Config{} }`,
+			false},
+		{"bad: assigned in loadCatalog (not initializer-named)",
+			`package x
+var catalog []string
+func loadCatalog() { catalog = []string{"x"} }`,
+			true},
 		{"good: var with sync.Mutex type",
 			`package x
 import "sync"

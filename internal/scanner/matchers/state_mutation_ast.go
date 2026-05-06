@@ -89,9 +89,13 @@ func globalStateMutationASTGo() scanner.Matcher {
 			if !ok || fd.Body == nil {
 				continue
 			}
-			// Skip init() — initialization is the documented place to
-			// set package state.
-			if fd.Recv == nil && fd.Name != nil && fd.Name.Name == "init" {
+			// Skip init-like functions: Go's own init(), main()
+			// (startup-only), and the canonical "named initializer"
+			// patterns (initializeFoo, setupFoo, bootstrapFoo,
+			// configureFoo). These functions run once during startup
+			// before goroutines are spawned, so package-level mutation
+			// in them is documented configuration, not a race risk.
+			if fd.Recv == nil && fd.Name != nil && isInitLikeFuncName(fd.Name.Name) {
 				continue
 			}
 			ast.Inspect(fd.Body, func(n ast.Node) bool {
@@ -158,6 +162,48 @@ func globalStateMutationASTGo() scanner.Matcher {
 			RelatedControls:    []string{"RC-022"},
 		},
 	}
+}
+
+// isInitLikeFuncName reports whether a top-level function name
+// identifies it as a startup initializer (where package-level
+// mutation is documented configuration, not concurrent state). These
+// functions run before goroutines are spawned, so race risks don't
+// apply.
+//
+// Matches:
+//   - "init"   — Go's special init function
+//   - "main"   — program entry point, also one-shot
+//   - prefixes followed by an uppercase letter: "initialize*",
+//     "setup*", "configure*", "bootstrap*", "load*Config",
+//     "load*Settings"
+//
+// The matcher is conservative: a function named "loadCatalog" still
+// triggers because catalogs are typically reloaded concurrently;
+// only the "load*Config"/"load*Settings" forms are treated as
+// startup-only.
+func isInitLikeFuncName(name string) bool {
+	switch name {
+	case "init", "main":
+		return true
+	}
+	for _, prefix := range []string{"initialize", "Initialize", "setup", "Setup", "configure", "Configure", "bootstrap", "Bootstrap"} {
+		if strings.HasPrefix(name, prefix) && len(name) > len(prefix) {
+			next := name[len(prefix)]
+			if (next >= 'A' && next <= 'Z') || prefix == "initialize" || prefix == "setup" || prefix == "configure" || prefix == "bootstrap" {
+				return true
+			}
+		}
+	}
+	if strings.HasPrefix(name, "load") || strings.HasPrefix(name, "Load") {
+		// loadConfig / loadSettings / loadEnv only — not load* in general.
+		rest := name[4:]
+		for _, suffix := range []string{"Config", "Settings", "Env", "Env"} {
+			if rest == suffix {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // exprMentionsConcurrentSafe reports whether the AST expression
