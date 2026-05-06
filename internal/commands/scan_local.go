@@ -241,15 +241,64 @@ func printLocalSummary(target, service string, findings []scanner.ScanFinding, s
 		counts["critical"], counts["high"], counts["medium"], counts["low"])
 }
 
-// runListMatchers prints the registered matchers in a human-readable
-// format. po-fayz.10 will expand this to include provenance columns and
-// a --source filter.
-func runListMatchers(filter string) {
+// runListMatchers prints the registered matchers with provenance.
+// sourceFilter is "curated" or "org-generated" or "" (any). format is
+// "" or "table" for the human view, "json" for machine consumption.
+//
+// PRD §Provenance data flow (Phase 1): list output exposes incident
+// frequency, typical blast radius, MTTR, and related controls so users
+// can prioritize which matchers to enforce in CI.
+func runListMatchers(sourceFilter, format string) {
 	all := matchers.AllMatchers()
 	sort.SliceStable(all, func(i, j int) bool { return all[i].Slug < all[j].Slug })
+
+	filtered := all[:0]
 	for _, m := range all {
-		fmt.Printf("%-32s %-20s %-10s %-8s impl=%s langs=%v controls=%v\n",
-			m.Slug, m.Category, m.Confidence, m.Severity, m.Impl, m.Languages, m.ControlCodes)
+		if sourceFilter != "" && !strings.EqualFold(m.Source, sourceFilter) {
+			continue
+		}
+		filtered = append(filtered, m)
+	}
+
+	if strings.EqualFold(format, "json") {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(filtered)
+		return
+	}
+
+	// Human-readable: one row per matcher, then a Provenance block.
+	fmt.Printf("%-32s %-22s %-7s %-7s %-9s %s\n", "SLUG", "CATEGORY", "CONF", "SEV", "SOURCE", "LANGS")
+	fmt.Println(strings.Repeat("-", 100))
+	for _, m := range filtered {
+		fmt.Printf("%-32s %-22s %-7s %-7s %-9s %s\n",
+			m.Slug, m.Category, m.Confidence, m.Severity, m.Source, strings.Join(m.Languages, ","))
+	}
+	fmt.Println()
+	for _, m := range filtered {
+		fmt.Printf("%s\n", m.Slug)
+		if m.Description != "" {
+			fmt.Printf("  description:        %s\n", m.Description)
+		}
+		if len(m.ControlCodes) > 0 {
+			fmt.Printf("  control_codes:      %s\n", strings.Join(m.ControlCodes, ", "))
+		}
+		if m.Provenance.IncidentFrequency != "" {
+			fmt.Printf("  incident_frequency: %s\n", m.Provenance.IncidentFrequency)
+		}
+		if m.Provenance.TypicalBlastRadius != "" {
+			fmt.Printf("  blast_radius:       %s\n", m.Provenance.TypicalBlastRadius)
+		}
+		if m.Provenance.TypicalMTTR != "" {
+			fmt.Printf("  typical_mttr:       %s\n", m.Provenance.TypicalMTTR)
+		}
+		if m.Provenance.OrgIncidentCount > 0 {
+			fmt.Printf("  org_incidents:      %d\n", m.Provenance.OrgIncidentCount)
+		}
+		if len(m.Provenance.OrgAffectedServices) > 0 {
+			fmt.Printf("  org_services:       %s\n", strings.Join(m.Provenance.OrgAffectedServices, ", "))
+		}
+		fmt.Println()
 	}
 }
 

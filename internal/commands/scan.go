@@ -163,6 +163,7 @@ func CmdScan(args []string, version string) {
 	var format string
 	var submit bool
 	var listMatchers bool
+	var matchersSourceFilter string
 	var matchersFlag string
 	var changedOnly bool
 	var baseRef string
@@ -228,6 +229,13 @@ func CmdScan(args []string, version string) {
 			submit = true
 		case "--list-matchers":
 			listMatchers = true
+		case "--source":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --source requires a value")
+				os.Exit(1)
+			}
+			i++
+			matchersSourceFilter = args[i]
 		case "--matchers":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --matchers requires a value")
@@ -265,7 +273,7 @@ func CmdScan(args []string, version string) {
 
 	// --list-matchers is independent of any scan invocation.
 	if listMatchers {
-		runListMatchers(matchersFlag)
+		runListMatchers(matchersSourceFilter, format)
 		return
 	}
 
