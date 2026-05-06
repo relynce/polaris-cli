@@ -42,7 +42,7 @@ The Claude Code integration is how you scan your codebase for reliability risks.
 
 You'll need an API key to connect the CLI to your Revelara account.
 
-1. Log in to Revelara at [dev.revelara.ai](https://dev.revelara.ai)
+1. Log in to Revelara at [app.revelara.ai](https://app.revelara.ai)
 2. Click your profile picture in the top-right corner
 3. Go to **API Keys**
 4. Click **Create New Key**
