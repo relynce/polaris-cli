@@ -20,5 +20,16 @@ func AllMatchers() []scanner.Matcher {
 	var out []scanner.Matcher
 	out = append(out, faultToleranceMatchers()...)
 	out = append(out, concurrencyASTMatchers()...)
+	out = append(out, heuristicMatchers()...)
 	return out
+}
+
+// heuristicMatchers returns matchers that need cross-cutting analysis
+// per file (e.g., import-set inspection) rather than line-level regex
+// or AST block walking. They ship at lower confidence because the
+// heuristic by design accepts some false positives.
+func heuristicMatchers() []scanner.Matcher {
+	return []scanner.Matcher{
+		missingCircuitBreaker(),
+	}
 }
