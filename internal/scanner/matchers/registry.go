@@ -21,6 +21,9 @@ func AllMatchers() []scanner.Matcher {
 	out = append(out, faultToleranceMatchers()...)
 	out = append(out, concurrencyASTMatchers()...)
 	out = append(out, heuristicMatchers()...)
+	out = append(out, observabilityMatchers()...)
+	out = append(out, securityMatchers()...)
+	out = append(out, devPracticesMatchers()...)
 	return out
 }
 
