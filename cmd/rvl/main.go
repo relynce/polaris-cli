@@ -230,12 +230,12 @@ Scan Command:
 
   Local Scanner (--local): runs the built-in pattern matchers against
   a codebase without an LLM. Supports CI gating, JSON output, and
-  submission to Polaris in one step.
+  submission to Revelara in one step.
 
   rvl scan --local --target <path>                       Run local scan, print human-readable summary
   rvl scan --local --target <path> --format json         Emit ScanRequest JSON on stdout (CI-friendly)
   rvl scan --local --target <path> --service <name> --submit
-                                                          Run local scan AND post to Polaris
+                                                          Run local scan AND post to Revelara
   rvl scan --local --list-matchers                       List all registered matchers + provenance
   rvl scan --local --list-matchers --source curated      Filter to curated (Phase 1) matchers
   rvl scan --local --list-matchers --format json         Machine-readable matcher catalog
@@ -246,7 +246,7 @@ Scan Command:
     --local                       Enable the built-in local scanner
     --target <path>               Directory to scan (default: cwd)
     --service <name>              Service name (overrides .revelara.yaml project)
-    --submit                      Post findings to Polaris after scanning
+    --submit                      Post findings to Revelara after scanning
     --format <fmt>                Output format: human (default, glamour-rendered when TTY),
                                   json (machine-readable), or markdown (raw)
     --list-matchers               List registered matchers and exit

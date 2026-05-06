@@ -33,7 +33,7 @@ type localScanArgs struct {
 
 // runLocalScan is the --local code path. Builds a matcher list, runs
 // scanner.Scan against opts.targetDir (or cwd), and either emits JSON to
-// stdout, submits to Polaris, or prints a human-readable summary.
+// stdout, submits to Revelara, or prints a human-readable summary.
 //
 // Phase 1 user stories: 1, 3, 5, 10, 14.
 func runLocalScan(cliVersion string, opts localScanArgs) {
@@ -180,7 +180,7 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	}
 
 	// --format json prints the JSON shape, regardless of --submit.
-	// --submit posts to Polaris (after JSON is printed when both are set).
+	// --submit posts to Revelara (after JSON is printed when both are set).
 	if strings.EqualFold(opts.format, "json") {
 		writeLocalJSON(service, asInterfaces)
 	}
