@@ -79,6 +79,10 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	scanOpts := scanner.ScanOptions{
 		Root:    absTarget,
 		Service: service,
+		// Auto-detect languages so matchers with non-empty Languages
+		// are filtered to the project's actual stack. Output mirrors
+		// project.DetectLanguages: proper-case names ("Go", "JavaScript").
+		Languages: project.DetectLanguages(absTarget),
 	}
 	if opts.matchersFlag != "" {
 		scanOpts.OnlyMatchers = splitCSV(opts.matchersFlag)

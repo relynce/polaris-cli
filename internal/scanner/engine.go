@@ -33,12 +33,25 @@ var generatedFileSuffixes = []string{
 	".pb.go", "_generated.go", ".gen.go",
 }
 
+// LanguageDetector returns the proper-case names of languages present
+// in rootDir. The signature matches project.DetectLanguages so the
+// caller can pass it directly. Used to drive matcher auto-selection
+// without coupling the scanner package to project detection.
+type LanguageDetector func(rootDir string) []string
+
 // Scan walks opts.Root, runs all applicable matchers from registry, and
 // returns the candidate findings plus stats. The caller (typically
 // CmdScan) translates Candidates into ScanFindings via convert.go.
 //
 // The engine emits paths in forward-slash form (PRD §Deterministic
 // Fingerprinting / Path normalization) regardless of host OS.
+//
+// Language auto-selection: when opts.Languages is non-empty (caller
+// pre-resolved via project.DetectLanguages or --matchers) those drive
+// filtering. When empty, no language filter is applied — all matchers
+// run, restricted only by their FilePatterns. Pass project.DetectLanguages
+// from the caller and assign the result into opts.Languages before
+// calling Scan to enable auto-selection.
 func Scan(matchers []Matcher, opts ScanOptions) ([]Candidate, ScanStats, error) {
 	start := time.Now()
 	if opts.Root == "" {
@@ -133,6 +146,14 @@ func filterMatchersByOptions(in []Matcher, opts ScanOptions) []Matcher {
 		onlySet[s] = true
 	}
 
+	// Build a set of detected languages for fast lookup. When
+	// opts.Languages is empty we skip the language filter entirely
+	// (every matcher with empty Languages always runs anyway).
+	langSet := map[string]bool{}
+	for _, l := range opts.Languages {
+		langSet[strings.ToLower(l)] = true
+	}
+
 	for _, m := range in {
 		if len(onlySet) > 0 && !onlySet[m.Slug] {
 			continue
@@ -143,10 +164,33 @@ func filterMatchersByOptions(in []Matcher, opts ScanOptions) []Matcher {
 		if minConf > 0 && confidenceRank[strings.ToLower(m.Confidence)] < minConf {
 			continue
 		}
-		// Language filter applied per-file in matcherAppliesToFile.
+		if !matcherLanguagesIntersect(m, langSet) {
+			continue
+		}
 		out = append(out, m)
 	}
 	return out
+}
+
+// matcherLanguagesIntersect reports whether m should run given the
+// detected language set. Matchers with empty Languages are
+// language-agnostic (typically IaC). Matchers with explicit Languages
+// run only when at least one is present in detected (case-insensitive).
+// When detected is empty (caller did not pre-resolve), all matchers
+// pass — the engine falls back to FilePatterns alone.
+func matcherLanguagesIntersect(m Matcher, detected map[string]bool) bool {
+	if len(m.Languages) == 0 {
+		return true
+	}
+	if len(detected) == 0 {
+		return true
+	}
+	for _, l := range m.Languages {
+		if detected[strings.ToLower(l)] {
+			return true
+		}
+	}
+	return false
 }
 
 type walkedFile struct {

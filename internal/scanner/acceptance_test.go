@@ -188,11 +188,18 @@ func TestPhase1Acceptance(t *testing.T) {
 
 	t.Run("non-Go matchers absent", func(t *testing.T) {
 		// Fixture is Go-only; JS/Python-specific matchers should not fire.
-		if len(findingsBy(req, "promise")) > 0 {
-			t.Errorf("unhandled-promise fired on a Go-only repo")
-		}
-		if len(findingsBy(req, "console.log")) > 0 {
-			t.Errorf("JS console.log matcher fired on a Go-only repo")
+		// Detection: check evidence file extensions. No finding should
+		// reference a non-.go source file.
+		for _, f := range req.Findings {
+			for _, ev := range f.Evidence {
+				if !strings.HasSuffix(ev.Path, ".go") &&
+					!strings.HasSuffix(ev.Path, ".yaml") &&
+					!strings.HasSuffix(ev.Path, ".yml") &&
+					!strings.HasSuffix(ev.Path, "Dockerfile") &&
+					!strings.HasSuffix(ev.Path, ".tf") {
+					t.Errorf("non-Go finding in Go-only fixture: file=%q title=%q", ev.Path, f.Title)
+				}
+			}
 		}
 	})
 
