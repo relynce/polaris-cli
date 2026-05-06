@@ -187,8 +187,12 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	if opts.submit {
 		submitLocalScan(cliVersion, service, projectCfg, asInterfaces, excludedMatcherSlugs)
 	}
-	if !strings.EqualFold(opts.format, "json") && !opts.submit {
-		printLocalSummary(absTarget, service, findings, stats)
+	if strings.EqualFold(opts.format, "markdown") {
+		// Explicit markdown output: emit raw without glamour rendering,
+		// regardless of TTY.
+		fmt.Print(renderScanReportMarkdown(absTarget, service, findings, stats))
+	} else if !strings.EqualFold(opts.format, "json") && !opts.submit {
+		renderLocalSummary(absTarget, service, findings, stats)
 	}
 	exitOnSeverity(findings)
 }
@@ -247,60 +251,12 @@ func submitLocalScan(cliVersion, service string, cfg *project.ProjectConfig, fin
 	}
 }
 
+// printLocalSummary is retained as a thin shim around the new
+// glamour-rendered renderLocalSummary. Kept so any callers outside
+// this file still compile; new code should use renderLocalSummary
+// directly.
 func printLocalSummary(target, service string, findings []scanner.ScanFinding, stats scanner.ScanStats) {
-	fmt.Printf("Scanned %s (service=%s)\n", target, service)
-	fmt.Printf("  Files: %d  Bytes: %d  Matchers: %d  Duration: %dms\n",
-		stats.FilesScanned, stats.BytesScanned, stats.MatchersRun, stats.DurationMS)
-	if len(findings) == 0 {
-		fmt.Println("No findings.")
-		return
-	}
-
-	// Category x severity matrix (PRD §Summary table).
-	type catSev struct {
-		cat string
-		sev string
-	}
-	matrix := map[catSev]int{}
-	cats := map[string]bool{}
-	for _, f := range findings {
-		k := catSev{f.Category, strings.ToLower(f.Impact)}
-		matrix[k]++
-		cats[f.Category] = true
-	}
-	severities := []string{"critical", "high", "medium", "low"}
-	catList := make([]string, 0, len(cats))
-	for c := range cats {
-		catList = append(catList, c)
-	}
-	sort.Strings(catList)
-
-	fmt.Printf("\nFindings by category x severity:\n")
-	fmt.Printf("  %-25s %-9s %-9s %-9s %-9s %s\n", "CATEGORY", "CRITICAL", "HIGH", "MEDIUM", "LOW", "TOTAL")
-	for _, c := range catList {
-		var total int
-		row := []int{}
-		for _, s := range severities {
-			n := matrix[catSev{c, s}]
-			row = append(row, n)
-			total += n
-		}
-		fmt.Printf("  %-25s %-9d %-9d %-9d %-9d %d\n", c, row[0], row[1], row[2], row[3], total)
-	}
-
-	fmt.Printf("\nFindings (%d):\n", len(findings))
-	for _, f := range findings {
-		path := ""
-		line := 0
-		if len(f.Evidence) > 0 {
-			path = f.Evidence[0].Path
-			line = f.Evidence[0].LineNumber
-		}
-		fmt.Printf("  [%s/%s] %s\n    %s:%d\n", f.Category, f.Impact, f.Title, path, line)
-	}
-	counts := severityCounts(findings)
-	fmt.Printf("\nBy severity: critical=%d high=%d medium=%d low=%d\n",
-		counts["critical"], counts["high"], counts["medium"], counts["low"])
+	renderLocalSummary(target, service, findings, stats)
 }
 
 // runListMatchers prints the registered matchers with provenance.

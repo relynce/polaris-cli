@@ -247,7 +247,8 @@ Scan Command:
     --target <path>               Directory to scan (default: cwd)
     --service <name>              Service name (overrides .revelara.yaml project)
     --submit                      Post findings to Polaris after scanning
-    --format <fmt>                Output format: human (default) or json
+    --format <fmt>                Output format: human (default, glamour-rendered when TTY),
+                                  json (machine-readable), or markdown (raw)
     --list-matchers               List registered matchers and exit
     --source <s>                  With --list-matchers: curated|org-generated
     --matchers <a,b,c>            Run only these matcher slugs (CSV)
