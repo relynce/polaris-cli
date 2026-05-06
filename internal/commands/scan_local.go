@@ -71,10 +71,14 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	}
 
 	// Build the matcher list. Curated matchers from the registry; org
-	// matchers from po-fayz.22 (returns empty in this slice).
+	// matchers loaded from the lazy-fetch cache (po-fayz.22).
 	allMatchers := matchers.AllMatchers()
-	orgMatchers, _ := scanner.LoadOrgMatchers("")
-	allMatchers = append(allMatchers, orgMatchers...)
+	cacheDir, _ := scanner.OrgMatcherCacheDir()
+	apiCfg := api.LoadAndResolveConfig()
+	scanner.LazyFetchOrgMatchers(apiCfg.APIURL, apiCfg.APIKey, apiCfg.ResolvedOrgID)
+	if orgMatchers, err := scanner.LoadOrgMatchers(cacheDir); err == nil {
+		allMatchers = append(allMatchers, orgMatchers...)
+	}
 
 	scanOpts := scanner.ScanOptions{
 		Root:    absTarget,
