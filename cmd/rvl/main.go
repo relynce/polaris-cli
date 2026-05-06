@@ -228,6 +228,60 @@ Scan Command:
   rvl scan --service <name> --dry-run     Validate without submitting
   rvl scan --target <path> --file <path>  Scan another project (service auto-resolved from .revelara.yaml)
 
+  Local Scanner (--local): runs the built-in pattern matchers against
+  a codebase without an LLM. Supports CI gating, JSON output, and
+  submission to Revelara in one step.
+
+  rvl scan --local --target <path>                       Run local scan, print human-readable summary
+  rvl scan --local --target <path> --format json         Emit ScanRequest JSON on stdout (CI-friendly)
+  rvl scan --local --target <path> --service <name> --submit
+                                                          Run local scan AND post to Revelara
+  rvl scan --local --list-matchers                       List all registered matchers + provenance
+  rvl scan --local --list-matchers --source curated      Filter to curated (Phase 1) matchers
+  rvl scan --local --list-matchers --format json         Machine-readable matcher catalog
+  rvl scan --local --target <path> --changed-only        Scan only files changed vs. base ref (CI mode)
+  rvl scan --local --target <path> --matchers a,b,c      Run only the listed matcher slugs
+
+  Local Scanner Flags:
+    --local                       Enable the built-in local scanner
+    --target <path>               Directory to scan (default: cwd)
+    --service <name>              Service name (overrides .revelara.yaml project)
+    --submit                      Post findings to Revelara after scanning
+    --format <fmt>                Output format: human (default, glamour-rendered when TTY),
+                                  json (machine-readable), or markdown (raw)
+    --list-matchers               List registered matchers and exit
+    --source <s>                  With --list-matchers: curated|org-generated
+    --matchers <a,b,c>            Run only these matcher slugs (CSV)
+    --changed-only                Scan only files changed since base ref
+    --base <ref>                  Base ref for --changed-only (overrides env vars)
+    --scan-all-on-missing-base    Fall back to full scan if no base ref reachable
+
+  Base ref resolution chain for --changed-only:
+    1. --base flag
+    2. RVL_BASE_REF env var
+    3. GITHUB_BASE_REF (PR events)
+    4. CI_MERGE_REQUEST_TARGET_BRANCH_NAME (GitLab MR)
+    5. .revelara.yaml scanner.base_ref
+    No reachable ref → exit 2 with diagnostic; pass --scan-all-on-missing-base to override.
+
+  Exit codes for --local:
+    0  No findings, or only low/medium findings
+    1  At least one critical or high finding (CI gate)
+    2  Scanner error (bad config, no base ref, unreadable files)
+
+  .revelara.yaml example:
+    project: my-service
+    criticality: customer-facing
+    components:
+      - name: api
+        path: cmd/server/
+    scanner:
+      exclude_matchers: [no-error-wrapping]   # too noisy for our codebase
+      exclude_paths:    [legacy/]
+      confidence_threshold: medium             # drop low-confidence matchers
+      base_ref:         origin/develop
+      include_tests:    false                  # per-matcher control still applies
+
 Review Command:
   rvl review [--commit <sha>] [--base <ref>] [--env <env>] [--format <text|json>] [--enforce] [--fail-closed] [--verbose]
     Review a commit or PR for reliability risks

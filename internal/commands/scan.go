@@ -54,6 +54,13 @@ type ScanMetadata struct {
 	SkillName     string `json:"skill_name,omitempty"`
 	SkillVersion  string `json:"skill_version,omitempty"`
 	SkillChecksum string `json:"skill_checksum,omitempty"`
+
+	// Local-scanner additions (po-fayz.14 mirrors these on Polaris).
+	// MatcherVersion is the matcher set version that produced findings;
+	// ExcludedMatchers is the list of slugs the user suppressed via
+	// .revelara.yaml so Polaris can drive the Phase 2 feedback loop.
+	MatcherVersion   string   `json:"matcher_version,omitempty"`
+	ExcludedMatchers []string `json:"excluded_matchers,omitempty"`
 }
 
 // ScanStackInfo holds detected technology stack information.
@@ -158,6 +165,17 @@ func CmdScan(args []string, version string) {
 	var autoInfer bool
 	var ciMode bool
 
+	// Local-scanner flags (po-fayz epic).
+	var localMode bool
+	var format string
+	var submit bool
+	var listMatchers bool
+	var matchersSourceFilter string
+	var matchersFlag string
+	var changedOnly bool
+	var baseRef string
+	var scanAllOnMissingBase bool
+
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--service", "-s":
@@ -205,15 +223,81 @@ func CmdScan(args []string, version string) {
 			autoInfer = true
 		case "--ci":
 			ciMode = true
+		case "--local":
+			localMode = true
+		case "--format":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --format requires a value")
+				os.Exit(1)
+			}
+			i++
+			format = args[i]
+		case "--submit":
+			submit = true
+		case "--list-matchers":
+			listMatchers = true
+		case "--source":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --source requires a value")
+				os.Exit(1)
+			}
+			i++
+			matchersSourceFilter = args[i]
+		case "--matchers":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --matchers requires a value")
+				os.Exit(1)
+			}
+			i++
+			matchersFlag = args[i]
+		case "--changed-only":
+			changedOnly = true
+		case "--base":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --base requires a value")
+				os.Exit(1)
+			}
+			i++
+			baseRef = args[i]
+		case "--scan-all-on-missing-base":
+			scanAllOnMissingBase = true
 		default:
 			if strings.HasPrefix(args[i], "--target=") {
 				targetDir = strings.TrimPrefix(args[i], "--target=")
 			} else if strings.HasPrefix(args[i], "--scan-dir=") {
 				scanDir = strings.TrimPrefix(args[i], "--scan-dir=")
+			} else if strings.HasPrefix(args[i], "--format=") {
+				format = strings.TrimPrefix(args[i], "--format=")
+			} else if strings.HasPrefix(args[i], "--matchers=") {
+				matchersFlag = strings.TrimPrefix(args[i], "--matchers=")
+			} else if strings.HasPrefix(args[i], "--base=") {
+				baseRef = strings.TrimPrefix(args[i], "--base=")
 			} else if !strings.HasPrefix(args[i], "-") && service == "" {
 				service = args[i]
 			}
 		}
+	}
+
+	// --list-matchers is independent of any scan invocation.
+	if listMatchers {
+		runListMatchers(matchersSourceFilter, format)
+		return
+	}
+
+	if localMode {
+		runLocalScan(version, localScanArgs{
+			service:              service,
+			targetDir:            targetDir,
+			format:               format,
+			submit:               submit,
+			matchersFlag:         matchersFlag,
+			changedOnly:          changedOnly,
+			baseRef:              baseRef,
+			scanAllOnMissingBase: scanAllOnMissingBase,
+			dryRun:               dryRun,
+			ciMode:               ciMode,
+		})
+		return
 	}
 
 	if targetDir != "" {

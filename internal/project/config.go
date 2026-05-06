@@ -15,6 +15,26 @@ type ProjectConfig struct {
 	Project     string             `yaml:"project"`
 	Criticality string             `yaml:"criticality,omitempty"`
 	Components  []ProjectComponent `yaml:"components"`
+	Scanner     *ScannerConfig     `yaml:"scanner,omitempty"`
+}
+
+// ScannerConfig is the optional .revelara.yaml `scanner` section consumed
+// by the local reliability scanner. Absent = all defaults.
+//
+// Example:
+//
+//	scanner:
+//	  exclude_matchers: [hardcoded-connection-string]
+//	  exclude_paths:    ["legacy/"]
+//	  confidence_threshold: medium
+//	  base_ref: origin/develop
+//	  include_tests: false
+type ScannerConfig struct {
+	ExcludeMatchers     []string `yaml:"exclude_matchers,omitempty"`
+	ExcludePaths        []string `yaml:"exclude_paths,omitempty"`
+	ConfidenceThreshold string   `yaml:"confidence_threshold,omitempty"`
+	BaseRef             string   `yaml:"base_ref,omitempty"`
+	IncludeTests        bool     `yaml:"include_tests,omitempty"`
 }
 
 // CriticalityScore maps the human-friendly criticality label to a float64 (0.0-1.0)
