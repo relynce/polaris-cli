@@ -2,7 +2,7 @@
 
 The `rvl scan --local` command runs a built-in pattern matcher set against
 a codebase without an LLM, network call, or API key. It produces structured
-findings you can submit to Polaris, gate CI on, or pipe to other tools.
+findings you can submit to Revelara, gate CI on, or pipe to other tools.
 
 This guide covers everyday usage, the report format, and the
 `.revelara.yaml` scanner section.
@@ -16,7 +16,7 @@ rvl scan --local
 # Scan a specific repo
 rvl scan --local --target /path/to/repo
 
-# Run AND submit findings to Polaris in one step
+# Run AND submit findings to Revelara in one step
 rvl scan --local --target /path/to/repo --submit
 
 # CI-friendly: emit JSON, no styling
@@ -177,7 +177,7 @@ scanner:
   include_tests: false
 ```
 
-Suppressed matcher slugs are echoed back to Polaris on `--submit` via
+Suppressed matcher slugs are echoed back to Revelara on `--submit` via
 `ScanMetadata.ExcludedMatchers`. The Phase 2 feedback loop uses these
 to mark org-generated matchers as noisy and stop regenerating them.
 
@@ -208,15 +208,15 @@ Each matcher entry shows:
 ## Phase 2: org-generated matchers
 
 When your organization has the `scanner_matcher_gen` feature flag
-enabled, Polaris generates matchers from your knowledge graph
+enabled, Revelara generates matchers from your knowledge graph
 patterns. These are reviewed and approved at
-`/settings/scanner/matchers` in the Polaris UI.
+`/settings/scanner/matchers` in the Revelara web app.
 
 Approved matchers are fetched lazily by the CLI on each scan: the
 local cache at `~/.revelara/matchers/org/` is refreshed if older
 than 24 hours. Findings produced by these matchers carry a "Generated
-from pattern" badge in the Polaris risk-detail view, linking back to
-the source knowledge graph pattern.
+from pattern" badge on the risk detail page, linking back to the
+source knowledge graph pattern.
 
 If the API is unreachable (offline, no auth), the scanner logs a
 warning and proceeds with the compiled-in matchers only.
@@ -234,7 +234,7 @@ Reference numbers from a 380-file, 11.6 MB repo:
 The engine uses an 8-worker pool over files; matchers within a file
 run sequentially.
 
-## Submitting findings to Polaris
+## Submitting findings to Revelara
 
 ```bash
 rvl scan --local --target . --submit
@@ -251,15 +251,16 @@ key. The submission carries:
 - `ScanMetadata.ExcludedMatchers` — slugs the user suppressed, used by
   the Phase 2 feedback loop
 
-Polaris scores findings via the knowledge graph, links them to
+Revelara scores findings via the knowledge graph, links them to
 controls, and updates the risk register. The same findings show up at
 `/risks` with the source attribution `rvl-local-scanner-<version>`.
 
 ## Troubleshooting
 
-**`scanner: lazy-fetch: API returned 404`** — your Polaris instance
-doesn't have the Phase 2 endpoints deployed yet. Benign warning: the
-scanner continues with the compiled-in matcher set.
+**`scanner: lazy-fetch: API returned 404`** — the Revelara API
+your CLI is pointed at doesn't have the Phase 2 endpoints deployed
+yet. Benign warning: the scanner continues with the compiled-in
+matcher set.
 
 **Exit code 2 with a base ref diagnostic** — `--changed-only` couldn't
 find a reachable ref. Either set `--base origin/main` explicitly,
@@ -268,7 +269,7 @@ arrange `fetch-depth: 0` in CI, or pass
 
 **Findings I disagree with** — add the matcher slug to
 `scanner.exclude_matchers` in `.revelara.yaml`. Suppressions are
-echoed back to Polaris so the corpus-validation team can investigate
+echoed back to Revelara so the corpus-validation team can investigate
 recurring false positives.
 
 **Want JSON output but seeing styled markdown** — the `--format` flag

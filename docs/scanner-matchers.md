@@ -10,12 +10,19 @@ matchers via the Polaris matcher-generation pipeline).
 If you want to suppress a noisy matcher rather than write a new one,
 see [local-scanner.md](./local-scanner.md#revelarayaml-configuration).
 
+> Note: this guide uses internal code names where they refer to
+> specific source code or services. **Polaris** is the internal code
+> name for the Revelara backend service; references like "the Polaris
+> RiskCategory enum" or "the Polaris matcher-generation pipeline" are
+> talking about specific Go packages in the polaris repo. User-facing
+> copy in the CLI itself uses the **Revelara** brand.
+
 ## Mental model
 
 The scanner walks files matching a glob, runs each applicable matcher
 against the file's contents, and emits a `Candidate` per match. The
 engine converts candidates to `ScanFinding` structs that flow into
-Polaris's risk register.
+the backend's risk register.
 
 A matcher is **data, not code** — a `scanner.Matcher` struct value
 declared in `internal/scanner/matchers/<domain>.go`. It carries:
