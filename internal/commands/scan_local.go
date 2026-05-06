@@ -88,9 +88,32 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 		scanOpts.OnlyMatchers = splitCSV(opts.matchersFlag)
 	}
 	if opts.changedOnly {
-		// po-fayz.9 will replace this stub with the full resolver chain.
-		// For now, the stub returns nil meaning "scan everything".
-		scanOpts.OnlyFiles, _ = scanner.ResolveChangedFiles(absTarget, opts.baseRef)
+		// Build the resolution config from flag + environment (po-fayz.12
+		// will add the .revelara.yaml scanner.base_ref source).
+		envCfg := scanner.ChangedOnlyConfig{
+			Root:        absTarget,
+			FlagBaseRef: opts.baseRef,
+			Env: map[string]string{
+				"RVL_BASE_REF":                          os.Getenv("RVL_BASE_REF"),
+				"GITHUB_BASE_REF":                       os.Getenv("GITHUB_BASE_REF"),
+				"CI_MERGE_REQUEST_TARGET_BRANCH_NAME":   os.Getenv("CI_MERGE_REQUEST_TARGET_BRANCH_NAME"),
+			},
+		}
+		res, err := scanner.ResolveBaseRef(envCfg)
+		if err != nil {
+			if !opts.scanAllOnMissingBase {
+				fmt.Fprint(os.Stderr, scanner.FormatNoBaseRefDiagnostic(res))
+				os.Exit(2)
+			}
+			fmt.Fprintln(os.Stderr, "warning: no reachable base ref; --scan-all-on-missing-base set, falling back to full scan")
+		} else {
+			files, err := scanner.ResolveChangedFiles(absTarget, res.Ref)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: git diff failed: %v\n", err)
+				os.Exit(2)
+			}
+			scanOpts.OnlyFiles = files
+		}
 	}
 
 	if opts.dryRun {
