@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
 	"github.com/revelara-ai/rvl-cli/internal/project"
@@ -96,6 +98,7 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	// .revelara.yaml `scanner` overrides. PRD §Configuration in
 	// .revelara.yaml: optional, ignored if absent.
 	var excludedMatcherSlugs []string
+	var appliedWaivers []AppliedWaiver
 	if projectCfg != nil && projectCfg.Scanner != nil {
 		sc := projectCfg.Scanner
 		if len(sc.ExcludeMatchers) > 0 {
@@ -114,6 +117,12 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 		if sc.IncludeTests {
 			scanOpts.IncludeTests = true
 		}
+		// po-qs96.5: time-bounded waivers from .revelara.yaml. Active
+		// waivers are recorded for audit-trail submission to polaris;
+		// the actual finding suppression happens in filterFindingsByWaivers
+		// after the engine runs (see below) so we have access to the
+		// finding slug + path to match the waiver's matcher + path glob.
+		appliedWaivers = activeWaivers(sc.Waivers, time.Now())
 	}
 	if opts.changedOnly {
 		var yamlBaseRef string
@@ -159,6 +168,15 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	}
 	findings := scanner.Convert(cands, allMatchers, service)
 
+	// po-qs96.5: apply yaml-defined waivers post-scan. Floor matchers
+	// remain when strict_enforcement is on regardless of any yaml waiver.
+	floorSet := floorMatcherSlugs(allMatchers)
+	strict := projectCfg != nil && projectCfg.Scanner != nil &&
+		projectCfg.Scanner.StrictEnforcement != nil && *projectCfg.Scanner.StrictEnforcement
+	var matchedWaivers []AppliedWaiver
+	findings, matchedWaivers = filterFindingsByWaivers(findings, appliedWaivers, strict, floorSet)
+	_ = matchedWaivers // forwarded to submission metadata below
+
 	// Component mapping via existing project.MapFindingsToComponents
 	// (operates on []interface{}). Convert findings to that shape.
 	asInterfaces := make([]interface{}, 0, len(findings))
@@ -187,7 +205,7 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	}
 	var submitResp *ScanResponse
 	if opts.submit {
-		submitResp = submitLocalScan(cliVersion, service, projectCfg, asInterfaces, excludedMatcherSlugs)
+		submitResp = submitLocalScan(cliVersion, service, projectCfg, asInterfaces, excludedMatcherSlugs, matchedWaivers)
 	}
 	if strings.EqualFold(opts.format, "markdown") {
 		// Explicit markdown output: emit raw without glamour rendering,
@@ -326,6 +344,125 @@ func perServiceBreakdownFrom(resp *ScanResponse) []ServiceBudget {
 	return out
 }
 
+// AppliedWaiver is a record of a yaml waiver that was active at scan time.
+// Submitted to polaris as scan-metadata so the waivers_audit table has a
+// who/when/scope/reason record for every applied suppression.
+// po-qs96.5 / docs/designs/local-scanner-developer-workflow.md § "Waivers".
+type AppliedWaiver struct {
+	Matcher string   `json:"matcher"`
+	Paths   []string `json:"paths,omitempty"`
+	Expires string   `json:"expires,omitempty"`
+	Reason  string   `json:"reason"`
+}
+
+// floorMatcherSlugs returns the set of matcher slugs marked Floor:true.
+// Used by filterFindingsByWaivers to enforce that strict-enforcement
+// mode does not let yaml waivers bypass compliance/security matchers.
+// po-qs96.2 + po-qs96.5.
+func floorMatcherSlugs(matchers []scanner.Matcher) map[string]bool {
+	out := map[string]bool{}
+	for _, m := range matchers {
+		if m.Floor {
+			out[strings.ToLower(m.Slug)] = true
+		}
+	}
+	return out
+}
+
+// activeWaivers filters out yaml waivers whose `expires` date has passed.
+// Empty `expires` means open-ended (always active until removed in repo).
+func activeWaivers(entries []project.WaiverEntry, now time.Time) []AppliedWaiver {
+	out := make([]AppliedWaiver, 0, len(entries))
+	for _, w := range entries {
+		if w.Expires != "" {
+			if exp, err := time.Parse("2006-01-02", w.Expires); err == nil {
+				if now.After(exp) {
+					continue
+				}
+			}
+		}
+		out = append(out, AppliedWaiver{
+			Matcher: w.Matcher,
+			Paths:   append([]string(nil), w.Paths...),
+			Expires: w.Expires,
+			Reason:  w.Reason,
+		})
+	}
+	return out
+}
+
+// filterFindingsByWaivers drops findings whose matcher slug + evidence path
+// is covered by an active waiver. Returns the remaining findings + the
+// subset of waivers that actually matched at least one finding (the ones
+// worth recording in the audit trail). Floor matchers are NEVER waived
+// when strictEnforcement is true; instead they require emergency override.
+func filterFindingsByWaivers(findings []scanner.ScanFinding, waivers []AppliedWaiver, strict bool, floorSet map[string]bool) ([]scanner.ScanFinding, []AppliedWaiver) {
+	if len(waivers) == 0 || len(findings) == 0 {
+		return findings, nil
+	}
+	usedWaivers := map[int]bool{}
+	out := make([]scanner.ScanFinding, 0, len(findings))
+findingLoop:
+	for _, f := range findings {
+		// po-qs96.2 + po-qs96.5: in strict mode, floor matchers cannot
+		// be waived via yaml/comment/label — only emergency override.
+		title := strings.ToLower(f.Title)
+		isFloor := false
+		for slug := range floorSet {
+			if strings.Contains(title, slug) {
+				isFloor = true
+				break
+			}
+		}
+		if strict && isFloor {
+			out = append(out, f)
+			continue
+		}
+		var path0 string
+		if len(f.Evidence) > 0 {
+			path0 = f.Evidence[0].Path
+		}
+		// Match by matcher slug appearing in title (rvl-cli ScanFinding
+		// uses the matcher description as title; the slug is also in the
+		// narrative). For path matching we use filepath.Match against
+		// each glob.
+		for i, w := range waivers {
+			if !strings.Contains(title, strings.ToLower(w.Matcher)) {
+				continue
+			}
+			if len(w.Paths) == 0 || waiverMatchesPath(w.Paths, path0) {
+				usedWaivers[i] = true
+				continue findingLoop
+			}
+		}
+		out = append(out, f)
+	}
+	matched := make([]AppliedWaiver, 0, len(usedWaivers))
+	for i := range usedWaivers {
+		matched = append(matched, waivers[i])
+	}
+	return out, matched
+}
+
+// waiverMatchesPath returns true if any of the waiver's path globs matches
+// the given finding path. Uses path.Match for forward-slash glob semantics
+// independent of host OS.
+func waiverMatchesPath(globs []string, p string) bool {
+	for _, g := range globs {
+		if ok, _ := path.Match(g, p); ok {
+			return true
+		}
+		// Allow `**` prefix glob: `**/*.go` matches `pkg/foo/bar.go`.
+		if strings.HasPrefix(g, "**/") {
+			suffix := strings.TrimPrefix(g, "**/")
+			if ok, _ := path.Match(suffix, path.Base(p)); ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // buildServiceToleranceConfig translates the .revelara.yaml `scanner`
 // section into the wire shape Polaris consumes. Returns nil when the
 // service has not overridden any tolerance fields so the request stays
@@ -375,8 +512,17 @@ func writeLocalJSON(service string, findings []interface{}) {
 	}
 }
 
-func submitLocalScan(cliVersion, service string, cfg *project.ProjectConfig, findings []interface{}, excludedMatchers []string) *ScanResponse {
+func submitLocalScan(cliVersion, service string, cfg *project.ProjectConfig, findings []interface{}, excludedMatchers []string, appliedWaivers []AppliedWaiver) *ScanResponse {
 	apiCfg := api.LoadAndResolveConfig()
+	wireWaivers := make([]AppliedWaiverWire, 0, len(appliedWaivers))
+	for _, w := range appliedWaivers {
+		wireWaivers = append(wireWaivers, AppliedWaiverWire{
+			Matcher: w.Matcher,
+			Paths:   w.Paths,
+			Expires: w.Expires,
+			Reason:  w.Reason,
+		})
+	}
 	scanReq := ScanRequest{
 		Service:  service,
 		ScanType: "full",
@@ -387,6 +533,7 @@ func submitLocalScan(cliVersion, service string, cfg *project.ProjectConfig, fin
 			SkillVersion:     scannerVersion,
 			MatcherVersion:   scannerVersion,
 			ExcludedMatchers: excludedMatchers,
+			AppliedWaivers:   wireWaivers,
 		},
 	}
 	if cfg != nil {

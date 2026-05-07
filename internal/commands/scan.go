@@ -78,6 +78,21 @@ type ScanMetadata struct {
 	// .revelara.yaml so Polaris can drive the Phase 2 feedback loop.
 	MatcherVersion   string   `json:"matcher_version,omitempty"`
 	ExcludedMatchers []string `json:"excluded_matchers,omitempty"`
+
+	// po-qs96.5: yaml-defined waivers that actually matched at least one
+	// finding during this scan. Polaris persists these to the
+	// waivers_audit table so EMs/auditors can answer "what did we accept
+	// and why" without spelunking.
+	AppliedWaivers []AppliedWaiverWire `json:"applied_waivers,omitempty"`
+}
+
+// AppliedWaiverWire is the JSON shape submitted to polaris for waiver
+// auditing. Mirrors the rvl-cli AppliedWaiver type exactly.
+type AppliedWaiverWire struct {
+	Matcher string   `json:"matcher"`
+	Paths   []string `json:"paths,omitempty"`
+	Expires string   `json:"expires,omitempty"`
+	Reason  string   `json:"reason"`
 }
 
 // ScanStackInfo holds detected technology stack information.

@@ -41,6 +41,24 @@ type ScannerConfig struct {
 	IncludeTests        bool             `yaml:"include_tests,omitempty"`
 	Tolerance           *ToleranceConfig `yaml:"tolerance,omitempty"`
 	StrictEnforcement   *bool            `yaml:"strict_enforcement,omitempty"`
+
+	// po-qs96.5: time-bounded, reason-bearing waivers for known-acceptable
+	// patterns. Different from ExcludeMatchers (no-questions-asked
+	// suppression). Each waiver gets logged to the polaris waivers_audit
+	// table when the scan submits, so EMs and auditors have a
+	// who/when/scope/reason record.
+	Waivers []WaiverEntry `yaml:"waivers,omitempty"`
+}
+
+// WaiverEntry is a single in-repo waiver. The matcher slug is required;
+// paths is a list of glob patterns scoping the waiver; expires is an ISO
+// date after which the waiver no longer applies; reason is required for
+// audit accountability.
+type WaiverEntry struct {
+	Matcher string   `yaml:"matcher"`
+	Paths   []string `yaml:"paths,omitempty"`
+	Expires string   `yaml:"expires,omitempty"` // YYYY-MM-DD
+	Reason  string   `yaml:"reason"`
 }
 
 // ToleranceConfig is the per-service tolerance override that flows from
