@@ -136,14 +136,20 @@ GitHub Actions:
     GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   run: |
     rvl scan --local --target . --changed-only --submit --pr-comment > comment.md
-    EXISTING=$(gh pr view ${{ github.event.pull_request.number }} \
-      --json comments \
+    PR=${{ github.event.pull_request.number }}
+    REPO=${{ github.repository }}
+    # gh pr view returns HTML URLs (.../pull/N#issuecomment-MMM); extract
+    # the numeric comment id and PATCH the API endpoint directly. Falls
+    # back to creating a fresh comment on first run.
+    EXISTING_ID=$(gh pr view "$PR" --repo "$REPO" --json comments \
       --jq '.comments[] | select(.body | startswith("<!-- rvl-sticky-comment:reliability -->")) | .url' \
-      | head -n1)
-    if [ -n "$EXISTING" ]; then
-      gh api -X PATCH "$EXISTING" -F body=@comment.md
+      | head -n1 \
+      | sed 's/.*#issuecomment-//')
+    if [ -n "$EXISTING_ID" ]; then
+      gh api -X PATCH "/repos/${REPO}/issues/comments/${EXISTING_ID}" \
+        -f body="$(cat comment.md)"
     else
-      gh pr comment ${{ github.event.pull_request.number }} -F comment.md
+      gh pr comment "$PR" --repo "$REPO" -F comment.md
     fi
 ```
 

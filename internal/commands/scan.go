@@ -181,11 +181,12 @@ type ScanUCACoverage struct {
 
 // ScanSummary provides aggregate statistics about the scan results
 type ScanSummary struct {
-	Total     int `json:"total"`
-	Created   int `json:"created"`
-	Updated   int `json:"updated"`
-	Unchanged int `json:"unchanged"`
-	Critical  int `json:"critical"`
+	Total            int `json:"total"`
+	Created          int `json:"created"`
+	Updated          int `json:"updated"`
+	Unchanged        int `json:"unchanged"`
+	ResolvedThisScan int `json:"resolved_this_scan,omitempty"` // po-qs96.4 fix: count of risks marked stale because the scan didn't surface them
+	Critical         int `json:"critical"`
 	High      int `json:"high"`
 	Medium    int `json:"medium"`
 	Low       int `json:"low"`

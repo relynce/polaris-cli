@@ -138,9 +138,7 @@ func TestRenderPRComment_NewAndResolvedFindingsTables(t *testing.T) {
 				Evidence: []scanner.ScanEvidence{{Path: "internal/client/redis.go", LineNumber: 42}},
 			},
 		},
-		ResolvedFindings: []ScanResult{
-			{RiskCode: "R-042", Score: 8},
-		},
+		ResolvedCount: 1,
 	}
 	got := RenderPRComment(in)
 	if !strings.Contains(got, "New findings (1)") {
@@ -152,11 +150,11 @@ func TestRenderPRComment_NewAndResolvedFindingsTables(t *testing.T) {
 	if !strings.Contains(got, "internal/client/redis.go:42") {
 		t.Errorf("evidence file:line must appear")
 	}
-	if !strings.Contains(got, "Resolved findings (1)") {
-		t.Errorf("resolved-findings section must reflect count")
+	if !strings.Contains(got, "Resolved this scan: 1") {
+		t.Errorf("resolved-count line must reflect ResolvedCount; got %s", got)
 	}
-	if !strings.Contains(got, "R-042") {
-		t.Errorf("resolved risk code must appear")
+	if false {
+		_ = "R-042" // legacy assertion removed: resolved-finding detail awaits server-side scan_id diff
 	}
 }
 

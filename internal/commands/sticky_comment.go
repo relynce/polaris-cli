@@ -19,10 +19,17 @@ const StickyCommentMarker = "<!-- rvl-sticky-comment:reliability -->"
 // to render the sticky comment for a PR. Keep this a value type — the
 // generator must be a pure function so tests can drive it from fixtures
 // without HTTP.
+//
+// Note on resolved findings: the polaris ScanResponse currently only
+// reports created/updated/unchanged ScanResult statuses, not a true
+// "resolved-this-PR" signal. ResolvedCount carries the count from the
+// scan response when polaris populates it (risks that went stale because
+// the scan didn't surface them); detailed per-risk resolution awaits a
+// follow-up that diffs scan_ids server-side.
 type PRCommentInput struct {
 	Service             string
 	NewFindings         []scanner.ScanFinding
-	ResolvedFindings    []ScanResult
+	ResolvedCount       int
 	PerServiceBreakdown []ServiceBudget
 	NetDelta            int
 	EffectiveTolerance  *EffectiveTolerance
@@ -119,14 +126,11 @@ func RenderPRComment(in PRCommentInput) string {
 		sb.WriteByte('\n')
 	}
 
-	// Resolved findings table
-	if len(in.ResolvedFindings) > 0 {
-		sb.WriteString(fmt.Sprintf("### Resolved findings (%d)\n\n", len(in.ResolvedFindings)))
-		sb.WriteString("| Risk | Score returned |\n|---|---|\n")
-		for _, f := range in.ResolvedFindings {
-			sb.WriteString(fmt.Sprintf("| %s | -%d |\n", f.RiskCode, f.Score))
-		}
-		sb.WriteByte('\n')
+	// Resolved count (best-effort: server-side diff of scan_ids is a
+	// follow-up; today this surfaces the count of risks that went stale
+	// because the scan didn't surface them again).
+	if in.ResolvedCount > 0 {
+		sb.WriteString(fmt.Sprintf("### Resolved this scan: %d\n\n", in.ResolvedCount))
 	}
 
 	// Provenance section: surface incident-grounding for the most-impactful

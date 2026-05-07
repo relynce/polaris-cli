@@ -240,8 +240,13 @@ func emitPRComment(service string, findings []scanner.ScanFinding, cfg *project.
 	if resp != nil {
 		in.EffectiveTolerance = resp.EffectiveTolerance
 		in.MeasuredState = sumScanResultScores(resp.Findings)
-		in.ResolvedFindings = filterResolvedFindings(resp.Findings)
-		in.PerServiceBreakdown = perServiceBreakdownFrom(resp)
+		// po-qs96.4 fix: resolved-this-scan signal is the count of risks
+		// that exist for this service but were not in the current scan.
+		// Polaris populates this in ScanSummary.ResolvedThisScan when it
+		// marks risks as stale. Count-only for v1; per-risk detail awaits
+		// a server-side scan_id diff.
+		in.ResolvedCount = resp.Summary.ResolvedThisScan
+		in.PerServiceBreakdown = perServiceBreakdownFromFindings(findings, resp.EffectiveTolerance)
 	}
 	fmt.Print(RenderPRComment(in))
 }
@@ -266,16 +271,6 @@ func sumScanResultScores(results []ScanResult) int {
 	return score
 }
 
-func filterResolvedFindings(results []ScanResult) []ScanResult {
-	out := make([]ScanResult, 0, len(results))
-	for _, r := range results {
-		if r.Status == "resolved" {
-			out = append(out, r)
-		}
-	}
-	return out
-}
-
 // severityScore mirrors polaris-side severity-doubled fallback (Path 2):
 // low=4*4=16, medium=7*7=49, high=10*10=100.
 func severityScore(impact string) int {
@@ -290,53 +285,52 @@ func severityScore(impact string) int {
 	return 49
 }
 
-// perServiceBreakdownFrom aggregates the scan response findings by their
-// linked services so the sticky comment can show per-service budget
-// breakdowns when a PR touches more than one service. Each open finding
-// is attributed to every service it lists.
-func perServiceBreakdownFrom(resp *ScanResponse) []ServiceBudget {
-	if resp == nil {
+// perServiceBreakdownFromFindings aggregates new findings by the
+// per-finding Component the scanner attributed (set by
+// project.MapFindingsToComponents from .revelara.yaml). Returns rows
+// only when more than one distinct component is touched — single-service
+// PRs render the simple budget summary instead. po-qs96.4 fix.
+func perServiceBreakdownFromFindings(findings []scanner.ScanFinding, tol *EffectiveTolerance) []ServiceBudget {
+	if len(findings) == 0 {
 		return nil
 	}
 	type acc struct {
 		score, count int
 	}
 	per := map[string]*acc{}
-	for _, r := range resp.Findings {
-		if r.Status == "resolved" {
+	for _, f := range findings {
+		key := f.Component
+		if key == "" && len(f.LinkedServices) > 0 {
+			key = f.LinkedServices[0]
+		}
+		if key == "" {
 			continue
 		}
-		// rvl-cli ScanResult does not carry linked_services; the polaris
-		// API attribution is always against the scan's primary service,
-		// so a single-service view is correct here. po-qs96.4 records
-		// the structural shape so a later iteration can extend without
-		// changing the wire.
-		key := resp.Service
 		entry, ok := per[key]
 		if !ok {
 			entry = &acc{}
 			per[key] = entry
 		}
-		entry.score += r.Score
+		entry.score += severityScore(f.Impact)
 		entry.count++
 	}
 	if len(per) <= 1 {
 		return nil // single-service: caller will not render the per-service table
 	}
-	out := make([]ServiceBudget, 0, len(per))
-	tol := 0
-	if resp.EffectiveTolerance != nil {
-		tol = resp.EffectiveTolerance.ToleranceTarget
+	target := 0
+	if tol != nil {
+		target = tol.ToleranceTarget
 	}
+	out := make([]ServiceBudget, 0, len(per))
 	for svc, a := range per {
 		row := ServiceBudget{
 			Service:       svc,
 			NetDelta:      a.score,
 			MeasuredState: a.score,
-			Tolerance:     tol,
+			Tolerance:     target,
 			Status:        "in_budget",
 		}
-		if tol > 0 && a.score > tol {
+		if target > 0 && a.score > target {
 			row.Status = "over_budget"
 		}
 		out = append(out, row)
@@ -396,25 +390,25 @@ func activeWaivers(entries []project.WaiverEntry, now time.Time) []AppliedWaiver
 // subset of waivers that actually matched at least one finding (the ones
 // worth recording in the audit trail). Floor matchers are NEVER waived
 // when strictEnforcement is true; instead they require emergency override.
+//
+// Matching is by ScanFinding.Slug (the matcher slug, set in convert.go),
+// not by title-substring against the matcher description.
 func filterFindingsByWaivers(findings []scanner.ScanFinding, waivers []AppliedWaiver, strict bool, floorSet map[string]bool) ([]scanner.ScanFinding, []AppliedWaiver) {
-	if len(waivers) == 0 || len(findings) == 0 {
+	if len(findings) == 0 {
 		return findings, nil
 	}
 	usedWaivers := map[int]bool{}
 	out := make([]scanner.ScanFinding, 0, len(findings))
 findingLoop:
 	for _, f := range findings {
+		findingSlug := strings.ToLower(f.Slug)
 		// po-qs96.2 + po-qs96.5: in strict mode, floor matchers cannot
 		// be waived via yaml/comment/label — only emergency override.
-		title := strings.ToLower(f.Title)
-		isFloor := false
-		for slug := range floorSet {
-			if strings.Contains(title, slug) {
-				isFloor = true
-				break
-			}
+		if strict && findingSlug != "" && floorSet[findingSlug] {
+			out = append(out, f)
+			continue
 		}
-		if strict && isFloor {
+		if len(waivers) == 0 || findingSlug == "" {
 			out = append(out, f)
 			continue
 		}
@@ -422,12 +416,8 @@ findingLoop:
 		if len(f.Evidence) > 0 {
 			path0 = f.Evidence[0].Path
 		}
-		// Match by matcher slug appearing in title (rvl-cli ScanFinding
-		// uses the matcher description as title; the slug is also in the
-		// narrative). For path matching we use filepath.Match against
-		// each glob.
 		for i, w := range waivers {
-			if !strings.Contains(title, strings.ToLower(w.Matcher)) {
+			if findingSlug != strings.ToLower(w.Matcher) {
 				continue
 			}
 			if len(w.Paths) == 0 || waiverMatchesPath(w.Paths, path0) {

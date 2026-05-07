@@ -22,6 +22,13 @@ type ScanFinding struct {
 	Evidence       []ScanEvidence  `json:"evidence,omitempty"`
 	Fingerprint    string          `json:"fingerprint,omitempty"`
 	Provenance     *ScanProvenance `json:"provenance,omitempty"`
+
+	// po-qs96.* fix: matcher Slug and Confidence on the wire so the
+	// polaris Path 5 scorer reads matcher confidence (not severity-as-
+	// confidence) and yaml/floor logic on rvl-cli matches by slug
+	// (not by title-substring against the matcher description).
+	Slug       string `json:"slug,omitempty"`
+	Confidence string `json:"confidence,omitempty"`
 }
 
 // ScanProvenance carries the matcher provenance fields that influence the
@@ -95,6 +102,8 @@ func Convert(cands []Candidate, matchers []Matcher, service string) []ScanFindin
 			}},
 			Fingerprint: LocationFingerprint(c.File, c.LineNumber, service),
 			Provenance:  provenanceForFinding(m),
+			Slug:        m.Slug,
+			Confidence:  m.Confidence,
 		}
 		out = append(out, f)
 	}
