@@ -29,6 +29,7 @@ type localScanArgs struct {
 	scanAllOnMissingBase bool
 	dryRun               bool
 	ciMode               bool
+	prComment            bool // po-qs96.4: emit sticky-comment markdown
 }
 
 // runLocalScan is the --local code path. Builds a matcher list, runs
@@ -184,8 +185,9 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	if strings.EqualFold(opts.format, "json") {
 		writeLocalJSON(service, asInterfaces)
 	}
+	var submitResp *ScanResponse
 	if opts.submit {
-		submitLocalScan(cliVersion, service, projectCfg, asInterfaces, excludedMatcherSlugs)
+		submitResp = submitLocalScan(cliVersion, service, projectCfg, asInterfaces, excludedMatcherSlugs)
 	}
 	if strings.EqualFold(opts.format, "markdown") {
 		// Explicit markdown output: emit raw without glamour rendering,
@@ -194,7 +196,134 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	} else if !strings.EqualFold(opts.format, "json") && !opts.submit {
 		renderLocalSummary(absTarget, service, findings, stats)
 	}
+	// po-qs96.4: --pr-comment emits the sticky-comment markdown to stdout
+	// for CI scripts to post via `gh pr comment` (or equivalent). The
+	// hidden marker at the top lets the CI script find and update the
+	// existing comment instead of creating duplicates.
+	if opts.prComment {
+		emitPRComment(service, findings, projectCfg, submitResp)
+	}
 	exitOnSeverity(findings)
+}
+
+// emitPRComment writes the sticky-comment markdown to stdout. When
+// submitResp is non-nil (i.e., the scan was --submit'd), the budget math
+// reflects the polaris-resolved tolerance and post-submission state. When
+// submitResp is nil (scan ran but didn't submit) the comment renders
+// without budget context — the CI script can still post it as a
+// findings-only summary.
+func emitPRComment(service string, findings []scanner.ScanFinding, cfg *project.ProjectConfig, resp *ScanResponse) {
+	in := PRCommentInput{
+		Service:         service,
+		NewFindings:     findings,
+		HasRevelaraYAML: cfg != nil,
+	}
+	in.NetDelta = sumFindingScores(findings)
+	if resp != nil {
+		in.EffectiveTolerance = resp.EffectiveTolerance
+		in.MeasuredState = sumScanResultScores(resp.Findings)
+		in.ResolvedFindings = filterResolvedFindings(resp.Findings)
+		in.PerServiceBreakdown = perServiceBreakdownFrom(resp)
+	}
+	fmt.Print(RenderPRComment(in))
+}
+
+// sumFindingScores estimates the contribution of new local-scanner
+// findings to the budget when no submission has happened. Each finding
+// is weighted by its impact severity using the same factors Polaris
+// applies in Path 5 with severity fallback (high=10*10=100, etc.).
+func sumFindingScores(findings []scanner.ScanFinding) int {
+	score := 0
+	for _, f := range findings {
+		score += severityScore(f.Impact)
+	}
+	return score
+}
+
+func sumScanResultScores(results []ScanResult) int {
+	score := 0
+	for _, r := range results {
+		score += r.Score
+	}
+	return score
+}
+
+func filterResolvedFindings(results []ScanResult) []ScanResult {
+	out := make([]ScanResult, 0, len(results))
+	for _, r := range results {
+		if r.Status == "resolved" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// severityScore mirrors polaris-side severity-doubled fallback (Path 2):
+// low=4*4=16, medium=7*7=49, high=10*10=100.
+func severityScore(impact string) int {
+	switch strings.ToLower(impact) {
+	case "high", "critical":
+		return 100
+	case "medium":
+		return 49
+	case "low":
+		return 16
+	}
+	return 49
+}
+
+// perServiceBreakdownFrom aggregates the scan response findings by their
+// linked services so the sticky comment can show per-service budget
+// breakdowns when a PR touches more than one service. Each open finding
+// is attributed to every service it lists.
+func perServiceBreakdownFrom(resp *ScanResponse) []ServiceBudget {
+	if resp == nil {
+		return nil
+	}
+	type acc struct {
+		score, count int
+	}
+	per := map[string]*acc{}
+	for _, r := range resp.Findings {
+		if r.Status == "resolved" {
+			continue
+		}
+		// rvl-cli ScanResult does not carry linked_services; the polaris
+		// API attribution is always against the scan's primary service,
+		// so a single-service view is correct here. po-qs96.4 records
+		// the structural shape so a later iteration can extend without
+		// changing the wire.
+		key := resp.Service
+		entry, ok := per[key]
+		if !ok {
+			entry = &acc{}
+			per[key] = entry
+		}
+		entry.score += r.Score
+		entry.count++
+	}
+	if len(per) <= 1 {
+		return nil // single-service: caller will not render the per-service table
+	}
+	out := make([]ServiceBudget, 0, len(per))
+	tol := 0
+	if resp.EffectiveTolerance != nil {
+		tol = resp.EffectiveTolerance.ToleranceTarget
+	}
+	for svc, a := range per {
+		row := ServiceBudget{
+			Service:       svc,
+			NetDelta:      a.score,
+			MeasuredState: a.score,
+			Tolerance:     tol,
+			Status:        "in_budget",
+		}
+		if tol > 0 && a.score > tol {
+			row.Status = "over_budget"
+		}
+		out = append(out, row)
+	}
+	return out
 }
 
 // buildServiceToleranceConfig translates the .revelara.yaml `scanner`
@@ -246,7 +375,7 @@ func writeLocalJSON(service string, findings []interface{}) {
 	}
 }
 
-func submitLocalScan(cliVersion, service string, cfg *project.ProjectConfig, findings []interface{}, excludedMatchers []string) {
+func submitLocalScan(cliVersion, service string, cfg *project.ProjectConfig, findings []interface{}, excludedMatchers []string) *ScanResponse {
 	apiCfg := api.LoadAndResolveConfig()
 	scanReq := ScanRequest{
 		Service:  service,
@@ -286,6 +415,7 @@ func submitLocalScan(cliVersion, service string, cfg *project.ProjectConfig, fin
 		fmt.Printf("  Priority: Critical=%d, High=%d, Medium=%d, Low=%d\n",
 			resp.Summary.Critical, resp.Summary.High, resp.Summary.Medium, resp.Summary.Low)
 	}
+	return resp
 }
 
 // printLocalSummary is retained as a thin shim around the new

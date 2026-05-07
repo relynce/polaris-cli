@@ -125,6 +125,20 @@ type ScanResponse struct {
 	ControlStructure *ScanControlStructureResult  `json:"control_structure,omitempty"`
 	Warnings         []string                    `json:"warnings,omitempty"`
 	Timestamp        string                      `json:"timestamp"`
+
+	// po-qs96.2: effective tolerance after merging per-service override
+	// over org defaults. po-qs96.4 reads this for the PR sticky comment
+	// budget math. Always populated for scan submissions.
+	EffectiveTolerance *EffectiveTolerance `json:"effective_tolerance,omitempty"`
+}
+
+// EffectiveTolerance is the resolved tolerance config returned by Polaris
+// after merging per-service overrides over org defaults. Mirrors
+// polaris-side ReliabilityDefaults exactly.
+type EffectiveTolerance struct {
+	ToleranceTarget      int  `json:"tolerance_target"`
+	ToleranceHeadroomPct int  `json:"tolerance_headroom_pct"`
+	StrictEnforcement    bool `json:"strict_enforcement"`
 }
 
 // ScanControlStructureResult is the control structure portion of a scan response.
@@ -192,6 +206,7 @@ func CmdScan(args []string, version string) {
 	var changedOnly bool
 	var baseRef string
 	var scanAllOnMissingBase bool
+	var prComment bool // po-qs96.4
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -278,6 +293,8 @@ func CmdScan(args []string, version string) {
 			baseRef = args[i]
 		case "--scan-all-on-missing-base":
 			scanAllOnMissingBase = true
+		case "--pr-comment":
+			prComment = true
 		default:
 			if strings.HasPrefix(args[i], "--target=") {
 				targetDir = strings.TrimPrefix(args[i], "--target=")
@@ -313,6 +330,7 @@ func CmdScan(args []string, version string) {
 			scanAllOnMissingBase: scanAllOnMissingBase,
 			dryRun:               dryRun,
 			ciMode:               ciMode,
+			prComment:            prComment,
 		})
 		return
 	}
