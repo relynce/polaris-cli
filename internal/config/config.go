@@ -36,23 +36,52 @@ func GetConfigPath() string {
 	return filepath.Join(home, configDir, configFile)
 }
 
-// LoadConfig loads configuration from disk
+// LoadConfig loads configuration from disk and overlays environment
+// variables on top. Env vars take precedence over yaml — the
+// CI/CD use case has no `~/.revelara/config.yaml` and must work via
+// secrets injected as env vars.
+//
+// Env vars (highest precedence):
+//   - RVL_API_KEY  → Config.APIKey
+//   - RVL_API_URL  → Config.APIURL
+//   - RVL_ORG_NAME → Config.OrgName
+//
+// When the config file is absent AND no RVL_API_KEY env var is set,
+// returns (nil, nil) so the caller can surface "Not configured".
 func LoadConfig() (*Config, error) {
+	var cfg Config
+
 	path := GetConfigPath()
 	data, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil // No config yet
+		if !os.IsNotExist(err) {
+			return nil, err
 		}
-		return nil, err
+		// No config file — fall through; env vars may still satisfy auth.
+	} else {
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return nil, err
+		}
 	}
 
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, err
+	if v := os.Getenv("RVL_API_KEY"); v != "" {
+		cfg.APIKey = v
 	}
+	if v := os.Getenv("RVL_API_URL"); v != "" {
+		cfg.APIURL = v
+	}
+	if v := os.Getenv("RVL_ORG_NAME"); v != "" {
+		cfg.OrgName = v
+	}
+
 	if cfg.APIURL == "" {
 		cfg.APIURL = DefaultAPIURL
+	}
+
+	// If neither file nor env var supplied an API key, return nil so the
+	// caller (LoadAndResolveConfig) prints the "Not configured" message.
+	if cfg.APIKey == "" {
+		return nil, nil
 	}
 	return &cfg, nil
 }
