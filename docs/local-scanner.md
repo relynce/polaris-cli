@@ -119,6 +119,52 @@ reliability-scan:
     - rvl scan --local --target . --submit
 ```
 
+### Sticky PR comment (po-qs96.4)
+
+The `--pr-comment` flag emits the sticky-comment markdown to stdout. Pipe
+it to `gh pr comment` (or equivalent) to post or update the comment on
+the active PR. The comment begins with a hidden marker
+(`<!-- rvl-sticky-comment:reliability -->`) so the CI script can find
+and update the existing comment instead of creating duplicates.
+
+GitHub Actions:
+
+```yaml
+- name: Reliability scan + PR comment
+  if: github.event_name == 'pull_request'
+  env:
+    GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  run: |
+    rvl scan --local --target . --changed-only --submit --pr-comment > comment.md
+    PR=${{ github.event.pull_request.number }}
+    REPO=${{ github.repository }}
+    # gh pr view returns HTML URLs (.../pull/N#issuecomment-MMM); extract
+    # the numeric comment id and PATCH the API endpoint directly. Falls
+    # back to creating a fresh comment on first run.
+    EXISTING_ID=$(gh pr view "$PR" --repo "$REPO" --json comments \
+      --jq '.comments[] | select(.body | startswith("<!-- rvl-sticky-comment:reliability -->")) | .url' \
+      | head -n1 \
+      | sed 's/.*#issuecomment-//')
+    if [ -n "$EXISTING_ID" ]; then
+      gh api -X PATCH "/repos/${REPO}/issues/comments/${EXISTING_ID}" \
+        -f body="$(cat comment.md)"
+    else
+      gh pr comment "$PR" --repo "$REPO" -F comment.md
+    fi
+```
+
+The status check still uses exit codes from the scanner: 0 (clean), 1
+(critical/high finding present), 2 (scanner error). When the PR is over
+budget, the comment surfaces "OVER BUDGET — waiver required to merge"
+and the exit code follows the existing severity rules. To gate strictly
+on budget, configure your CI to fail when the comment contains
+"OVER BUDGET":
+
+```yaml
+- name: Enforce budget
+  run: grep -q 'OVER BUDGET' comment.md && exit 1 || true
+```
+
 ### Scan only changed files
 
 For PR builds, scan only files changed since the base ref:

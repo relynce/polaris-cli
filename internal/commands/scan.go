@@ -36,6 +36,23 @@ type ScanRequest struct {
 	Dependencies []ScanDependency `json:"dependencies,omitempty"`
 	CatalogMeta         *ScanCatalogMeta `json:"catalog_meta,omitempty"`
 	BusinessCriticality *float64         `json:"business_criticality,omitempty"`
+
+	// po-qs96.2: per-service tolerance override carried from .revelara.yaml
+	// `scanner.tolerance` and `scanner.strict_enforcement` to the Polaris CI
+	// gate. Polaris merges this over org-level defaults via ResolveTolerance
+	// (most-specific wins) — see docs/designs/local-scanner-developer-workflow.md
+	// in the polaris repo.
+	ServiceTolerance *ServiceToleranceConfig `json:"service_tolerance,omitempty"`
+}
+
+// ServiceToleranceConfig mirrors polaris-side ServiceToleranceConfig
+// exactly. Pointer fields distinguish "unset" from "zero value" so the
+// resolver can fall through to org defaults for any field the service
+// did not explicitly override.
+type ServiceToleranceConfig struct {
+	ToleranceTarget      *int  `json:"tolerance_target,omitempty"`
+	ToleranceHeadroomPct *int  `json:"tolerance_headroom_pct,omitempty"`
+	StrictEnforcement    *bool `json:"strict_enforcement,omitempty"`
 }
 
 // ScanControlStructureData is the control structure portion of a scan request.
@@ -61,6 +78,21 @@ type ScanMetadata struct {
 	// .revelara.yaml so Polaris can drive the Phase 2 feedback loop.
 	MatcherVersion   string   `json:"matcher_version,omitempty"`
 	ExcludedMatchers []string `json:"excluded_matchers,omitempty"`
+
+	// po-qs96.5: yaml-defined waivers that actually matched at least one
+	// finding during this scan. Polaris persists these to the
+	// waivers_audit table so EMs/auditors can answer "what did we accept
+	// and why" without spelunking.
+	AppliedWaivers []AppliedWaiverWire `json:"applied_waivers,omitempty"`
+}
+
+// AppliedWaiverWire is the JSON shape submitted to polaris for waiver
+// auditing. Mirrors the rvl-cli AppliedWaiver type exactly.
+type AppliedWaiverWire struct {
+	Matcher string   `json:"matcher"`
+	Paths   []string `json:"paths,omitempty"`
+	Expires string   `json:"expires,omitempty"`
+	Reason  string   `json:"reason"`
 }
 
 // ScanStackInfo holds detected technology stack information.
@@ -108,6 +140,24 @@ type ScanResponse struct {
 	ControlStructure *ScanControlStructureResult  `json:"control_structure,omitempty"`
 	Warnings         []string                    `json:"warnings,omitempty"`
 	Timestamp        string                      `json:"timestamp"`
+
+	// po-qs96.2: effective tolerance after merging per-service override
+	// over org defaults. po-qs96.4 reads this for the PR sticky comment
+	// budget math. Always populated for scan submissions.
+	EffectiveTolerance *EffectiveTolerance `json:"effective_tolerance,omitempty"`
+}
+
+// EffectiveTolerance is the resolved tolerance config returned by Polaris
+// after merging per-service overrides over org defaults. Mirrors
+// polaris-side ReliabilityDefaults exactly.
+type EffectiveTolerance struct {
+	ToleranceTarget      int  `json:"tolerance_target"`
+	ToleranceHeadroomPct int  `json:"tolerance_headroom_pct"`
+	StrictEnforcement    bool `json:"strict_enforcement"`
+
+	// po-qs96.6: true when the service is still in the 30-day calibration
+	// window. Triggers advisory-mode comment + skip-gate behavior.
+	Calibrating bool `json:"calibrating,omitempty"`
 }
 
 // ScanControlStructureResult is the control structure portion of a scan response.
@@ -131,11 +181,12 @@ type ScanUCACoverage struct {
 
 // ScanSummary provides aggregate statistics about the scan results
 type ScanSummary struct {
-	Total     int `json:"total"`
-	Created   int `json:"created"`
-	Updated   int `json:"updated"`
-	Unchanged int `json:"unchanged"`
-	Critical  int `json:"critical"`
+	Total            int `json:"total"`
+	Created          int `json:"created"`
+	Updated          int `json:"updated"`
+	Unchanged        int `json:"unchanged"`
+	ResolvedThisScan int `json:"resolved_this_scan,omitempty"` // po-qs96.4 fix: count of risks marked stale because the scan didn't surface them
+	Critical         int `json:"critical"`
 	High      int `json:"high"`
 	Medium    int `json:"medium"`
 	Low       int `json:"low"`
@@ -175,6 +226,7 @@ func CmdScan(args []string, version string) {
 	var changedOnly bool
 	var baseRef string
 	var scanAllOnMissingBase bool
+	var prComment bool // po-qs96.4
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -261,6 +313,8 @@ func CmdScan(args []string, version string) {
 			baseRef = args[i]
 		case "--scan-all-on-missing-base":
 			scanAllOnMissingBase = true
+		case "--pr-comment":
+			prComment = true
 		default:
 			if strings.HasPrefix(args[i], "--target=") {
 				targetDir = strings.TrimPrefix(args[i], "--target=")
@@ -296,6 +350,7 @@ func CmdScan(args []string, version string) {
 			scanAllOnMissingBase: scanAllOnMissingBase,
 			dryRun:               dryRun,
 			ciMode:               ciMode,
+			prComment:            prComment,
 		})
 		return
 	}

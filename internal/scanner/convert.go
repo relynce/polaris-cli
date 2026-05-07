@@ -11,16 +11,37 @@ import (
 // keep scanner free of HTTP concerns. CmdScan converts to its local
 // ScanRequest.Findings shape via ToInterface().
 type ScanFinding struct {
-	Title          string         `json:"title"`
-	Category       string         `json:"category"`
-	Likelihood     string         `json:"likelihood"`
-	Impact         string         `json:"impact"`
-	Narrative      string         `json:"narrative,omitempty"`
-	Component      string         `json:"component,omitempty"`
-	LinkedServices []string       `json:"linked_services,omitempty"`
-	ControlCodes   []string       `json:"control_codes,omitempty"`
-	Evidence       []ScanEvidence `json:"evidence,omitempty"`
-	Fingerprint    string         `json:"fingerprint,omitempty"`
+	Title          string          `json:"title"`
+	Category       string          `json:"category"`
+	Likelihood     string          `json:"likelihood"`
+	Impact         string          `json:"impact"`
+	Narrative      string          `json:"narrative,omitempty"`
+	Component      string          `json:"component,omitempty"`
+	LinkedServices []string        `json:"linked_services,omitempty"`
+	ControlCodes   []string        `json:"control_codes,omitempty"`
+	Evidence       []ScanEvidence  `json:"evidence,omitempty"`
+	Fingerprint    string          `json:"fingerprint,omitempty"`
+	Provenance     *ScanProvenance `json:"provenance,omitempty"`
+
+	// po-qs96.* fix: matcher Slug and Confidence on the wire so the
+	// polaris Path 5 scorer reads matcher confidence (not severity-as-
+	// confidence) and yaml/floor logic on rvl-cli matches by slug
+	// (not by title-substring against the matcher description).
+	Slug       string `json:"slug,omitempty"`
+	Confidence string `json:"confidence,omitempty"`
+}
+
+// ScanProvenance carries the matcher provenance fields that influence the
+// Polaris Path 5 scoring formula. Mirrors the polaris-side ScanProvenance
+// type exactly (internal/api/risk_handlers.go). Descriptive provenance
+// (FailureDescription, RelatedControls) lives in Narrative because it does
+// not enter the score formula.
+type ScanProvenance struct {
+	IncidentFrequency  string   `json:"incident_frequency,omitempty"`
+	TypicalBlastRadius string   `json:"typical_blast_radius,omitempty"`
+	TypicalMTTR        string   `json:"typical_mttr,omitempty"`
+	SourcePatternIDs   []string `json:"source_pattern_ids,omitempty"`
+	OrgIncidentCount   int      `json:"org_incident_count,omitempty"`
 }
 
 // ScanEvidence mirrors Polaris's ScanEvidence shape.
@@ -80,6 +101,9 @@ func Convert(cands []Candidate, matchers []Matcher, service string) []ScanFindin
 				Description: c.Description,
 			}},
 			Fingerprint: LocationFingerprint(c.File, c.LineNumber, service),
+			Provenance:  provenanceForFinding(m),
+			Slug:        m.Slug,
+			Confidence:  m.Confidence,
 		}
 		out = append(out, f)
 	}
@@ -104,6 +128,26 @@ func titleFor(m Matcher, c Candidate) string {
 		return m.Slug
 	}
 	return m.Description
+}
+
+// provenanceForFinding returns a *ScanProvenance for serialization when the
+// matcher carries any scoring-relevant provenance data, and nil otherwise.
+// Polaris's Path 5 scorer tolerates partial provenance (likelihood and impact
+// axes are derived independently), but a fully empty struct should serialize
+// as omitted to keep submission payloads compact.
+func provenanceForFinding(m Matcher) *ScanProvenance {
+	p := m.Provenance
+	if p.IncidentFrequency == "" && p.TypicalBlastRadius == "" && p.TypicalMTTR == "" &&
+		len(p.SourcePatternIDs) == 0 && p.OrgIncidentCount == 0 {
+		return nil
+	}
+	return &ScanProvenance{
+		IncidentFrequency:  p.IncidentFrequency,
+		TypicalBlastRadius: p.TypicalBlastRadius,
+		TypicalMTTR:        p.TypicalMTTR,
+		SourcePatternIDs:   append([]string(nil), p.SourcePatternIDs...),
+		OrgIncidentCount:   p.OrgIncidentCount,
+	}
 }
 
 func likelihoodAndImpactForSeverity(severity string) (string, string) {

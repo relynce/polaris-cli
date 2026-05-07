@@ -29,12 +29,46 @@ type ProjectConfig struct {
 //	  confidence_threshold: medium
 //	  base_ref: origin/develop
 //	  include_tests: false
+//	  tolerance:
+//	    target: 200
+//	    headroom_pct: 10
+//	  strict_enforcement: false
 type ScannerConfig struct {
-	ExcludeMatchers     []string `yaml:"exclude_matchers,omitempty"`
-	ExcludePaths        []string `yaml:"exclude_paths,omitempty"`
-	ConfidenceThreshold string   `yaml:"confidence_threshold,omitempty"`
-	BaseRef             string   `yaml:"base_ref,omitempty"`
-	IncludeTests        bool     `yaml:"include_tests,omitempty"`
+	ExcludeMatchers     []string         `yaml:"exclude_matchers,omitempty"`
+	ExcludePaths        []string         `yaml:"exclude_paths,omitempty"`
+	ConfidenceThreshold string           `yaml:"confidence_threshold,omitempty"`
+	BaseRef             string           `yaml:"base_ref,omitempty"`
+	IncludeTests        bool             `yaml:"include_tests,omitempty"`
+	Tolerance           *ToleranceConfig `yaml:"tolerance,omitempty"`
+	StrictEnforcement   *bool            `yaml:"strict_enforcement,omitempty"`
+
+	// po-qs96.5: time-bounded, reason-bearing waivers for known-acceptable
+	// patterns. Different from ExcludeMatchers (no-questions-asked
+	// suppression). Each waiver gets logged to the polaris waivers_audit
+	// table when the scan submits, so EMs and auditors have a
+	// who/when/scope/reason record.
+	Waivers []WaiverEntry `yaml:"waivers,omitempty"`
+}
+
+// WaiverEntry is a single in-repo waiver. The matcher slug is required;
+// paths is a list of glob patterns scoping the waiver; expires is an ISO
+// date after which the waiver no longer applies; reason is required for
+// audit accountability.
+type WaiverEntry struct {
+	Matcher string   `yaml:"matcher"`
+	Paths   []string `yaml:"paths,omitempty"`
+	Expires string   `yaml:"expires,omitempty"` // YYYY-MM-DD
+	Reason  string   `yaml:"reason"`
+}
+
+// ToleranceConfig is the per-service tolerance override that flows from
+// .revelara.yaml to the Polaris CI gate via the scan submission. Each
+// field is a pointer so unset fields fall through to org-level defaults
+// (most-specific wins). Reference: docs/designs/local-scanner-developer-workflow.md
+// in the polaris repo.
+type ToleranceConfig struct {
+	Target      *int `yaml:"target,omitempty"`
+	HeadroomPct *int `yaml:"headroom_pct,omitempty"`
 }
 
 // CriticalityScore maps the human-friendly criticality label to a float64 (0.0-1.0)

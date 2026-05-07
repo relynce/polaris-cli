@@ -307,6 +307,7 @@ func terraformNoEncryption() scanner.Matcher {
 		Severity:     "high",
 		Impl:         scanner.ImplHeuristic,
 		Source:       "curated",
+		Floor:        true, // po-qs96.2: unencrypted PII at rest is compliance/security, not a reliability tradeoff
 		Check:        check,
 		Provenance: scanner.Provenance{
 			FailureDescription: "Unencrypted storage is a compliance failure and a data-loss risk on disk theft",
