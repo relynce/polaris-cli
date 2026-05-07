@@ -154,6 +154,10 @@ type EffectiveTolerance struct {
 	ToleranceTarget      int  `json:"tolerance_target"`
 	ToleranceHeadroomPct int  `json:"tolerance_headroom_pct"`
 	StrictEnforcement    bool `json:"strict_enforcement"`
+
+	// po-qs96.6: true when the service is still in the 30-day calibration
+	// window. Triggers advisory-mode comment + skip-gate behavior.
+	Calibrating bool `json:"calibrating,omitempty"`
 }
 
 // ScanControlStructureResult is the control structure portion of a scan response.

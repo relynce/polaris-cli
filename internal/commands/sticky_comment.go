@@ -62,8 +62,14 @@ func RenderPRComment(in PRCommentInput) string {
 		sb.WriteString("Run `rvl init` to commit a per-service config and unlock per-service overrides.\n\n")
 	}
 
-	// Budget summary line
-	if in.EffectiveTolerance != nil {
+	// po-qs96.6: calibration banner (takes precedence over budget messaging
+	// because gate enforcement is suspended during the 30-day window).
+	if in.EffectiveTolerance != nil && in.EffectiveTolerance.Calibrating {
+		sb.WriteString("> :wrench: **Calibration mode** — no gate enforcement. Findings are recorded; ")
+		sb.WriteString("tolerance will be proposed on day 30 from the measured state at that time. ")
+		sb.WriteString("EM accepts or modifies the proposal in Settings → Reliability.\n\n")
+	} else if in.EffectiveTolerance != nil {
+		// Budget summary line (live gate)
 		over := in.MeasuredState > in.EffectiveTolerance.ToleranceTarget
 		pct := 0.0
 		if in.EffectiveTolerance.ToleranceTarget > 0 {
