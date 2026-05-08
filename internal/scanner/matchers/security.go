@@ -60,12 +60,37 @@ func hardcodedConnectionString() scanner.Matcher {
 // fragment + dynamic value", so we look for a SQL keyword inside a
 // string literal that is adjacent to + (Go/Java/Python concat) or
 // inside a backtick string with ${...} (JS/TS template literal).
+//
+// Refinements (po-qfmh.2 follow-up):
+//
+//  1. Concat patterns require structural SQL context inside the literal
+//     (SELECT…FROM, UPDATE…SET, plus the already-paired INSERT INTO and
+//     DELETE FROM) so that "update: " in error messages and other English
+//     uses of "update"/"select" don't fire the matcher.
+//  2. Both Go-style patterns (concat, formatfn) carry a window-scoped
+//     NegateRegex that suppresses the finding when a parameterized
+//     placeholder ($1, $2, …) appears within ten lines. Polaris and other
+//     well-written Go services use $N for values everywhere; %s in a
+//     fmt.Sprintf is reserved for compile-time-constant column lists or
+//     allowlisted table names. Real injection sites lack any $N nearby.
+//
+// The JS/TS template-literal pattern is unchanged; its idioms differ.
 func rawSQLNoParams() scanner.Matcher {
-	// Three complementary patterns; any firing produces a candidate.
-	concat := regexp.MustCompile(`(?i)"[^"]*\b(?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b[^"]*"\s*\+|\+\s*"[^"]*\b(?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b[^"]*"`)
+	// concat: a string literal containing a real SQL skeleton sits
+	// adjacent to a `+`. SELECT must reach FROM, UPDATE must reach SET;
+	// INSERT INTO and DELETE FROM are already paired. Case-insensitive
+	// because tests and some ORMs use mixed case.
+	concat := regexp.MustCompile(`(?is)"[^"]*\b(?:SELECT\b[^"]*\bFROM|INSERT\s+INTO|UPDATE\b[^"]*\bSET|DELETE\s+FROM)\b[^"]*"\s*\+|\+\s*"[^"]*\b(?:SELECT\b[^"]*\bFROM|INSERT\s+INTO|UPDATE\b[^"]*\bSET|DELETE\s+FROM)\b[^"]*"`)
 	tpl := regexp.MustCompile("(?is)`[^`]*\\b(?:SELECT|INSERT\\s+INTO|UPDATE|DELETE\\s+FROM)\\b[^`]*\\$\\{[^`]*`")
 	// fmt.Sprintf("...SELECT...%d...", x), Python f"...SELECT...{x}...".
-	formatfn := regexp.MustCompile(`(?i)(?:fmt\.Sprintf|String\.format|f")\s*\(?\s*["` + "`" + `][^"` + "`" + `]*\b(?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM)\b[^"` + "`" + `]*%[sdv]`)
+	// Same SELECT…FROM / UPDATE…SET tightening as concat.
+	formatfn := regexp.MustCompile(`(?is)(?:fmt\.Sprintf|String\.format|f")\s*\(?\s*["` + "`" + `][^"` + "`" + `]*\b(?:SELECT\b[^"` + "`" + `]*\bFROM|INSERT\s+INTO|UPDATE\b[^"` + "`" + `]*\bSET|DELETE\s+FROM)\b[^"` + "`" + `]*%[sdv]`)
+	// Negate: any positional placeholder ($1, $2, …) within the
+	// surrounding window means the developer is using parameterized
+	// values; the unparam'd-looking fragment is almost certainly a
+	// constant column list or accumulator of $%d positions, not user
+	// input. Real injection sites have no $N anywhere.
+	paramPlaceholder := regexp.MustCompile(`\$\d+`)
 	return scanner.Matcher{
 		Slug:           "raw-sql-no-params",
 		Description:    "SQL constructed via string concatenation/interpolation",
@@ -83,7 +108,8 @@ func rawSQLNoParams() scanner.Matcher {
 			{
 				Regex:       concat,
 				Label:       "SQL string fragment adjacent to + concatenation",
-				NegateScope: scanner.NegateScope{Kind: "line"},
+				NegateRegex: paramPlaceholder,
+				NegateScope: scanner.NegateScope{Kind: "window", Window: 10},
 			},
 			{
 				Regex:       tpl,
@@ -93,7 +119,8 @@ func rawSQLNoParams() scanner.Matcher {
 			{
 				Regex:       formatfn,
 				Label:       "SQL inside fmt.Sprintf/String.format/f-string with format placeholder",
-				NegateScope: scanner.NegateScope{Kind: "line"},
+				NegateRegex: paramPlaceholder,
+				NegateScope: scanner.NegateScope{Kind: "window", Window: 10},
 			},
 		},
 		Provenance: scanner.Provenance{

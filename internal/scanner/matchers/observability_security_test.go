@@ -128,6 +128,71 @@ func TestRawSQLNoParams(t *testing.T) {
 		{"good: javascript template literal SELECT (still bad)",
 			"const q = `SELECT * FROM u WHERE id = ${id}`",
 			true},
+
+		// po-qfmh.2: false-positive suppression for the patterns observed
+		// in polaris that the original regex flagged as score-100 risks
+		// (R-101, R-124, R-167, …). Each `good:` case below corresponds
+		// to a verified safe pattern; each `bad:` case confirms real
+		// injection is still detected.
+
+		{"good: fmt.Sprintf with column-list constant and $N (R-101 pattern)",
+			"const ucaColumns = `id, content, created_at`\n" +
+				"query := fmt.Sprintf(`SELECT %s FROM ucas WHERE id = $1`, ucaColumns)",
+			false},
+		{"good: dynamic WHERE accumulator with $%d positions (R-124 pattern)",
+			`baseWhere := "organization_id = $1"
+args := []interface{}{orgID}
+if statusFilter != "" {
+    baseWhere += fmt.Sprintf(" AND status = $%d", argNum)
+    args = append(args, statusFilter)
+}
+countQuery := "SELECT COUNT(*) FROM import_jobs WHERE " + baseWhere
+db.QueryRow(ctx, countQuery, args...).Scan(&n)`,
+			false},
+		{"good: const SET clause concat near parameterized Exec (R-168 pattern)",
+			`const setStatus = "status = $3, updated_at = NOW()"
+ct, err := db.Exec(ctx,
+    "UPDATE scanner_matchers SET "+setStatus+" WHERE id = $1 AND organization_id = $2",
+    id, orgID, status)`,
+			false},
+		{"good: error message concat next to parameterized Exec (R-167 pattern)",
+			`_, err := db.Exec(ctx,
+    "UPDATE scanner_matchers SET status = $3 WHERE id = $1 AND organization_id = $2",
+    id, orgID, status)
+if err != nil {
+    writeJSONError(w, "update: "+err.Error(), http.StatusInternalServerError)
+}`,
+			false},
+		{"good: allowlisted table name with $N (account_org_reaper pattern)",
+			`for _, table := range noActionOrgChildren {
+    stmt := fmt.Sprintf(` + "`DELETE FROM %s WHERE organization_id = $1`" + `, table)
+    tx.Exec(ctx, stmt, orgID)
+}`,
+			false},
+
+		{"bad: real injection in fmt.Sprintf with no $N anywhere",
+			`func unsafe(id string) string {
+    return fmt.Sprintf("SELECT * FROM users WHERE id = %s", id)
+}`,
+			true},
+		{"bad: real injection via concat with no $N anywhere",
+			`func unsafe(name string) {
+    q := "SELECT * FROM users WHERE name = '" + name + "'"
+    db.Exec(q)
+}`,
+			true},
+		{"bad: UPDATE injection with no $N anywhere",
+			`func unsafe(name, role string) {
+    q := "UPDATE users SET role = '" + role + "' WHERE name = '" + name + "'"
+    db.Exec(q)
+}`,
+			true},
+
+		{"good: lowercase 'update' in english error message far from any SQL",
+			`if err != nil {
+    return fmt.Errorf("failed to update: " + err.Error())
+}`,
+			false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
