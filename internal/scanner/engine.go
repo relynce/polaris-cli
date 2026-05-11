@@ -386,11 +386,16 @@ func snippetFromOffsets(src []byte, start, end int) string {
 	if end > len(src) {
 		end = len(src)
 	}
-	// Expand to the surrounding line for readability.
+	// Expand to the surrounding line(s) for readability. Use `end` (not
+	// `start`) when looking for the trailing newline so matches that span
+	// multiple lines stay intact in the snippet.
 	lineStart := bytes.LastIndexByte(src[:start], '\n') + 1
-	lineEnd := start + bytes.IndexByte(src[start:], '\n')
-	if lineEnd < start {
+	rel := bytes.IndexByte(src[end:], '\n')
+	var lineEnd int
+	if rel < 0 {
 		lineEnd = len(src)
+	} else {
+		lineEnd = end + rel
 	}
 	s := strings.TrimSpace(string(src[lineStart:lineEnd]))
 	if len(s) > maxLen {

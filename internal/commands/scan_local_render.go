@@ -8,7 +8,11 @@ import (
 
 	"github.com/charmbracelet/glamour"
 	"github.com/revelara-ai/rvl-cli/internal/scanner"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 )
+
+var titleCaser = cases.Title(language.English)
 
 // renderLocalSummary builds a markdown report of the scan result and
 // renders it via glamour when stdout is a terminal. When stdout is
@@ -88,7 +92,7 @@ func renderScanReportMarkdown(target, service string, findings []scanner.ScanFin
 			continue
 		}
 		fmt.Fprintf(&sb, "## %s %s severity (%d)\n\n",
-			severityIcon(sev), strings.Title(sev), len(fs))
+			severityIcon(sev), titleCaser.String(sev), len(fs))
 		sb.WriteString(renderFindingsTable(fs))
 		sb.WriteString("\n")
 	}
