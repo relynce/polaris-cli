@@ -500,9 +500,10 @@ func cmdKnowledgeProcedures(args []string) {
 		return
 	}
 
-	// If filtering by control code, filter client-side on related_controls
-	var filtered []KnowledgeProcedure
+	// If filtering by control code, filter client-side on related_controls.
+	// When nothing matches the control, fall back to showing all results from the query.
 	if control != "" {
+		var filtered []KnowledgeProcedure
 		for _, p := range procsResp.Procedures {
 			for _, rc := range p.RelatedControls {
 				if rc == control {
@@ -511,10 +512,7 @@ func cmdKnowledgeProcedures(args []string) {
 				}
 			}
 		}
-		if len(filtered) == 0 {
-			// Fall back to showing all results from query
-			filtered = procsResp.Procedures
-		} else {
+		if len(filtered) > 0 {
 			procsResp.Procedures = filtered
 		}
 	}
