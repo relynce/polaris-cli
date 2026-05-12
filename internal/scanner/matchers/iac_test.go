@@ -2,12 +2,6 @@ package matchers
 
 import "testing"
 
-func runIaCMatcher(t *testing.T, m func() interface {}, src, file string) bool {
-	t.Helper()
-	_ = m
-	return false
-}
-
 func TestK8sNoReadinessProbe(t *testing.T) {
 	m := k8sNoReadinessProbe()
 	cases := []struct {

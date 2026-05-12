@@ -446,14 +446,7 @@ func submitControlStructure(cfg *config.Config, repoURL string, cs *stpaControlS
 
 	edges := make([]csEdgeReq, len(cs.Edges))
 	for i, e := range cs.Edges {
-		edges[i] = csEdgeReq{
-			FromKey:    e.FromKey,
-			ToKey:      e.ToKey,
-			Label:      e.Label,
-			EdgeType:   e.EdgeType,
-			Source:     e.Source,
-			Confidence: e.Confidence,
-		}
+		edges[i] = csEdgeReq(e)
 	}
 
 	body, _ := json.Marshal(map[string]any{

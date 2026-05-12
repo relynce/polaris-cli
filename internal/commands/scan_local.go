@@ -506,12 +506,7 @@ func submitLocalScan(cliVersion, service string, cfg *project.ProjectConfig, fin
 	apiCfg := api.LoadAndResolveConfig()
 	wireWaivers := make([]AppliedWaiverWire, 0, len(appliedWaivers))
 	for _, w := range appliedWaivers {
-		wireWaivers = append(wireWaivers, AppliedWaiverWire{
-			Matcher: w.Matcher,
-			Paths:   w.Paths,
-			Expires: w.Expires,
-			Reason:  w.Reason,
-		})
+		wireWaivers = append(wireWaivers, AppliedWaiverWire(w))
 	}
 	scanReq := ScanRequest{
 		Service:  service,
@@ -553,14 +548,6 @@ func submitLocalScan(cliVersion, service string, cfg *project.ProjectConfig, fin
 			resp.Summary.Critical, resp.Summary.High, resp.Summary.Medium, resp.Summary.Low)
 	}
 	return resp
-}
-
-// printLocalSummary is retained as a thin shim around the new
-// glamour-rendered renderLocalSummary. Kept so any callers outside
-// this file still compile; new code should use renderLocalSummary
-// directly.
-func printLocalSummary(target, service string, findings []scanner.ScanFinding, stats scanner.ScanStats) {
-	renderLocalSummary(target, service, findings, stats)
 }
 
 // runListMatchers prints the registered matchers with provenance.
