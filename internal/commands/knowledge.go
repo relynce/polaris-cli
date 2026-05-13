@@ -11,14 +11,20 @@ import (
 	"github.com/revelara-ai/rvl-cli/internal/display"
 )
 
-// KnowledgeSearchResult represents a search result from the knowledge API
+// KnowledgeSearchResult represents a search result from the knowledge API.
+//
+// The score sub-field is `similarity`, not `score` — the server
+// (internal/knowledge.SemanticSearchResult) emits cosine similarity in
+// [0,1] under the `similarity` JSON key. Earlier revisions of this struct
+// read `score`, which silently rendered as 0 because the field did not
+// exist in the response (po-2voa3).
 type KnowledgeSearchResult struct {
 	Type       string  `json:"type"` // fact, procedure, pattern
 	ID         string  `json:"id"`
 	Title      string  `json:"title,omitempty"`
 	Content    string  `json:"content,omitempty"`
 	Vertical   string  `json:"vertical,omitempty"`
-	Score      float64 `json:"score,omitempty"`
+	Similarity float64 `json:"similarity,omitempty"`
 	Confidence float64 `json:"confidence,omitempty"`
 }
 
@@ -380,8 +386,8 @@ func cmdKnowledgeSearch(args []string) {
 			title = display.TruncateText(r.Content, 80)
 		}
 		fmt.Printf("  %-12s %s %s\n", r.ID, typeBadge, title)
-		if r.Score > 0 {
-			fmt.Printf("               Score: %.2f  Vertical: %s\n", r.Score, r.Vertical)
+		if r.Similarity > 0 {
+			fmt.Printf("               Similarity: %.2f  Vertical: %s\n", r.Similarity, r.Vertical)
 		}
 	}
 }
@@ -1207,8 +1213,8 @@ func cmdKnowledgeEnrich(args []string) {
 				title = display.TruncateText(r.Content, 80)
 			}
 			fmt.Printf("  %-12s %s %s\n", r.ID, typeBadge, title)
-			if r.Score > 0 {
-				fmt.Printf("               Score: %.2f  Vertical: %s\n", r.Score, r.Vertical)
+			if r.Similarity > 0 {
+				fmt.Printf("               Similarity: %.2f  Vertical: %s\n", r.Similarity, r.Vertical)
 			}
 		}
 	}
