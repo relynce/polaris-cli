@@ -199,7 +199,7 @@ Options:
 
 Examples:
   rvl risk list
-  rvl risk list --status detected --service polaris
+  rvl risk list --status applicable --service polaris
   rvl risk ready
   rvl risk ready --limit 20 --category change_management
   rvl risk show R-001
@@ -288,8 +288,11 @@ func CmdRiskList(args []string) {
 }
 
 // CmdRiskReady shows the top unresolved risks ranked by score (highest value first).
-// "Ready" means the risk has status "detected" (the only open status)
-// and is sorted by score descending so the highest-impact items surface first.
+// "Ready" means the risk has status "applicable" — the polaris API emits
+// applicable / accepted / mitigated as the canonical lifecycle (post
+// po-rf63t / po-072n2); the prior comment claiming "detected" was the
+// only open status was stale and the filter below returned nothing in
+// production because no row ever has status="detected".
 func CmdRiskReady(args []string) {
 	cfg := api.LoadAndResolveConfig()
 
@@ -345,10 +348,14 @@ func CmdRiskReady(args []string) {
 		os.Exit(1)
 	}
 
-	// Filter to open statuses only (detected)
+	// Filter to open statuses only. The polaris API emits applicable /
+	// accepted / mitigated; "applicable" is the unaddressed-open state,
+	// which is the only one a "ready" remediation queue cares about.
+	// "accepted" is intentionally excluded so accepted-risk acknowledgement
+	// doesn't keep surfacing items.
 	var ready []Risk
 	for _, r := range resp.Risks {
-		if r.Status == "detected" {
+		if r.Status == "applicable" {
 			ready = append(ready, r)
 		}
 	}
