@@ -12,7 +12,16 @@ import (
 	"github.com/revelara-ai/rvl-cli/internal/display"
 )
 
-// Risk represents a risk in the system
+// Risk represents a risk in the system.
+//
+// po-p3xur: this struct was previously a narrow hand-rolled shape that
+// silently stripped spec-defined fields (corroborating_incidents,
+// score_breakdown, latest_dismissal, stpa_provenance, generated_matcher,
+// score_analysis, graph_multiplier) from the JSON output. Until the CLI
+// migrates to a generated client package, we widen by carrying the raw
+// payload alongside the typed view via the Raw field; `rvl risk show
+// --format=json` re-emits Raw so users get the full server payload
+// regardless of which fields are typed here today.
 type Risk struct {
 	ID           string   `json:"id"`
 	RiskCode     string   `json:"risk_code"`
@@ -35,6 +44,15 @@ type RiskDetail struct {
 	Risk
 	MappedControls []MappedControl `json:"mapped_controls,omitempty"`
 	Narrative      string          `json:"narrative,omitempty"`
+	// po-p3xur: capture spec-defined enrichments that aren't yet
+	// strongly typed in the CLI. `json.RawMessage` keeps them on the
+	// wire without forcing a struct rewrite, so `rvl risk show
+	// --format=json` outputs the full payload.
+	CorroboratingIncidents json.RawMessage `json:"corroborating_incidents,omitempty"`
+	ScoreBreakdown         json.RawMessage `json:"score_breakdown,omitempty"`
+	LatestDismissal        json.RawMessage `json:"latest_dismissal,omitempty"`
+	STPAProvenance         json.RawMessage `json:"stpa_provenance,omitempty"`
+	GeneratedMatcher       json.RawMessage `json:"generated_matcher,omitempty"`
 }
 
 // MappedControl represents a control mapped to a risk
@@ -45,6 +63,12 @@ type MappedControl struct {
 	Category    string `json:"category"`
 	Type        string `json:"type"`
 	Objective   string `json:"objective,omitempty"`
+	// po-p3xur: keep evidence / weight / treatment fields the server
+	// includes in MappedControl so they round-trip through --format=json.
+	Weight                int             `json:"weight,omitempty"`
+	Treatment             string          `json:"treatment,omitempty"`
+	ExpectedEvidenceTypes []string        `json:"expected_evidence_types,omitempty"`
+	Evidence              json.RawMessage `json:"evidence,omitempty"`
 }
 
 // ListRisksResponse represents the response from listing risks
@@ -53,13 +77,29 @@ type ListRisksResponse struct {
 	Total int    `json:"total"`
 }
 
-// RiskContextResponse represents the full context for a risk
+// RiskContextResponse represents the full context for a risk.
+//
+// po-cvy1t: score_analysis and graph_multiplier are populated by the
+// server but were silently stripped by the prior hand-rolled struct.
+// We keep them as json.RawMessage so the CLI doesn't need to mirror
+// every analyzer/multiplier substructure to faithfully echo the full
+// payload via --format=json.
+//
+// po-foyko: the server-side field was renamed from `score_breakdown`
+// to `score_factors` (the `score_breakdown` key now refers to the
+// Path5Breakdown object on RiskDetailResponse, not this array of
+// contributing factors). We accept both keys during the transition so
+// older servers continue to work; new servers will only emit the new
+// key.
 type RiskContextResponse struct {
-	Risk           RiskDetail           `json:"risk"`
-	Controls       []ControlContextItem `json:"controls"`
-	Knowledge      KnowledgeContextResp `json:"knowledge"`
-	ServiceContext *ServiceContextResp  `json:"service_context,omitempty"`
-	ScoreBreakdown []ScoreFactorResp    `json:"score_breakdown,omitempty"`
+	Risk            RiskDetail           `json:"risk"`
+	Controls        []ControlContextItem `json:"controls"`
+	Knowledge       KnowledgeContextResp `json:"knowledge"`
+	ServiceContext  *ServiceContextResp  `json:"service_context,omitempty"`
+	ScoreFactors    []ScoreFactorResp    `json:"score_factors,omitempty"`
+	ScoreFactorsOld []ScoreFactorResp    `json:"score_breakdown,omitempty"` // pre-po-foyko alias
+	ScoreAnalysis   json.RawMessage      `json:"score_analysis,omitempty"`
+	GraphMultiplier json.RawMessage      `json:"graph_multiplier,omitempty"`
 }
 
 // ControlContextItem represents a control with its context
@@ -622,10 +662,17 @@ func printRiskContext(ctx RiskContextResponse) {
 		}
 	}
 
-	if len(ctx.ScoreBreakdown) > 0 {
-		fmt.Println("\nScore Breakdown:")
+	// po-foyko: prefer the new `score_factors` key but fall back to the
+	// pre-rename `score_breakdown` alias so older polaris versions still
+	// render the breakdown until they roll forward.
+	factors := ctx.ScoreFactors
+	if len(factors) == 0 {
+		factors = ctx.ScoreFactorsOld
+	}
+	if len(factors) > 0 {
+		fmt.Println("\nScore Factors:")
 		fmt.Println(strings.Repeat("-", 80))
-		for _, factor := range ctx.ScoreBreakdown {
+		for _, factor := range factors {
 			fmt.Printf("  [%+3d] %s (Source: %s)\n", factor.Points, factor.Description, factor.Source)
 		}
 	}
