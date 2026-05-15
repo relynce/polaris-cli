@@ -32,6 +32,7 @@ type localScanArgs struct {
 	dryRun               bool
 	ciMode               bool
 	prComment            bool // po-qs96.4: emit sticky-comment markdown
+	noDedupe             bool // po-jlsd6: suppress grouped output, emit flat per-instance only
 }
 
 // runLocalScan is the --local code path. Builds a matcher list, runs
@@ -201,7 +202,11 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	// --format json prints the JSON shape, regardless of --submit.
 	// --submit posts to Revelara (after JSON is printed when both are set).
 	if strings.EqualFold(opts.format, "json") {
-		writeLocalJSON(service, asInterfaces)
+		var groups []scanner.FindingGroup
+		if !opts.noDedupe {
+			groups = scanner.Group(findings)
+		}
+		writeLocalJSON(service, asInterfaces, groups)
 	}
 	var submitResp *ScanResponse
 	if opts.submit {
@@ -484,7 +489,7 @@ func buildServiceToleranceConfig(sc *project.ScannerConfig) *ServiceToleranceCon
 	return out
 }
 
-func writeLocalJSON(service string, findings []interface{}) {
+func writeLocalJSON(service string, findings []interface{}, groups []scanner.FindingGroup) {
 	out := map[string]interface{}{
 		"service":   service,
 		"scan_type": "full",
@@ -493,6 +498,13 @@ func writeLocalJSON(service string, findings []interface{}) {
 			"scanner_id":      "rvl-local-scanner-" + scannerVersion,
 			"matcher_version": scannerVersion,
 		},
+	}
+	if len(groups) > 0 {
+		// po-jlsd6: groups is the clustered view of findings, one entry per
+		// (category, matcher) pair with rolled-up instance counts and
+		// locations. CI scripts that want aggregate counts read this;
+		// scripts that submit to polaris keep using findings.
+		out["groups"] = groups
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")

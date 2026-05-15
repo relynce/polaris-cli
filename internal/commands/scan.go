@@ -227,6 +227,7 @@ func CmdScan(args []string, version string) {
 	var baseRef string
 	var scanAllOnMissingBase bool
 	var prComment bool // po-qs96.4
+	var noDedupe bool  // po-jlsd6
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -315,6 +316,8 @@ func CmdScan(args []string, version string) {
 			scanAllOnMissingBase = true
 		case "--pr-comment":
 			prComment = true
+		case "--no-dedupe":
+			noDedupe = true
 		default:
 			if strings.HasPrefix(args[i], "--target=") {
 				targetDir = strings.TrimPrefix(args[i], "--target=")
@@ -351,6 +354,7 @@ func CmdScan(args []string, version string) {
 			dryRun:               dryRun,
 			ciMode:               ciMode,
 			prComment:            prComment,
+			noDedupe:             noDedupe,
 		})
 		return
 	}
