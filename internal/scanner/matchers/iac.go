@@ -14,7 +14,9 @@ func iacMatchers() []scanner.Matcher {
 	return []scanner.Matcher{
 		k8sNoReadinessProbe(),
 		k8sNoLivenessProbe(),
-		k8sMissingResourceLimits(),
+		k8sMissingMemoryLimit(),
+		k8sMissingCPULimit(),
+		k8sLimitBelowRequest(),
 		dockerfileNoHealthcheck(),
 		terraformNoEncryption(),
 	}
@@ -116,25 +118,6 @@ func k8sNoLivenessProbe() scanner.Matcher {
 			TypicalMTTR:        "elevated until manual intervention",
 			SourcePatternTypes: []string{"failure_mode"},
 			RelatedControls:    []string{"RC-024"},
-		},
-	})
-}
-
-func k8sMissingResourceLimits() scanner.Matcher {
-	return k8sMissingFieldMatcher(missingFieldSpec{
-		Slug:        "missing-resource-limits",
-		Description: "Kubernetes container without resource limits",
-		Field:       "limits:",
-		ControlCode: "RC-025",
-		Severity:    "high",
-		Confidence:  "high",
-		Provenance: scanner.Provenance{
-			FailureDescription: "Unbounded resource usage causes noisy-neighbor failures and node-level OOM",
-			IncidentFrequency:  "Common in multi-tenant cluster incidents",
-			TypicalBlastRadius: "node-level",
-			TypicalMTTR:        "30-60 minutes",
-			SourcePatternTypes: []string{"failure_mode"},
-			RelatedControls:    []string{"RC-025"},
 		},
 	})
 }

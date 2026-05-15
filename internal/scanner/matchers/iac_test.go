@@ -54,9 +54,15 @@ metadata:
 	}
 }
 
-func TestK8sMissingResourceLimits(t *testing.T) {
-	m := k8sMissingResourceLimits()
-	bad := `apiVersion: apps/v1
+func TestK8sMissingMemoryLimit(t *testing.T) {
+	m := k8sMissingMemoryLimit()
+	cases := []struct {
+		name string
+		src  string
+		want int // expected candidate count
+	}{
+		{"bad: no resources block at all",
+			`apiVersion: apps/v1
 kind: Deployment
 spec:
   template:
@@ -64,8 +70,9 @@ spec:
       containers:
         - name: c
           image: alpine
-`
-	good := `apiVersion: apps/v1
+`, 1},
+		{"bad: cpu-only limits, no memory",
+			`apiVersion: apps/v1
 kind: Deployment
 spec:
   template:
@@ -76,12 +83,229 @@ spec:
           resources:
             limits:
               cpu: 200m
-`
-	if cands := m.Check("/abs/d.yaml", "d.yaml", []byte(bad)); len(cands) == 0 {
-		t.Error("expected match on missing limits")
+`, 1},
+		{"good: memory limit present",
+			`apiVersion: apps/v1
+kind: Deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: c
+          image: alpine
+          resources:
+            limits:
+              memory: 256Mi
+`, 0},
+		{"partial: one of two containers missing memory limit",
+			`apiVersion: apps/v1
+kind: Deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: ok
+          image: alpine
+          resources:
+            limits:
+              memory: 256Mi
+              cpu: 200m
+        - name: bad
+          image: alpine
+`, 1},
+		{"pod: Pod kind covered",
+			`apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: c
+      image: alpine
+`, 1},
+		{"cronjob: CronJob deep nesting covered",
+			`apiVersion: batch/v1
+kind: CronJob
+spec:
+  schedule: "* * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: c
+              image: alpine
+`, 1},
+		{"job: Job kind covered",
+			`apiVersion: batch/v1
+kind: Job
+spec:
+  template:
+    spec:
+      containers:
+        - name: c
+          image: alpine
+`, 1},
+		{"replicaset: ReplicaSet kind covered",
+			`apiVersion: apps/v1
+kind: ReplicaSet
+spec:
+  template:
+    spec:
+      containers:
+        - name: c
+          image: alpine
+`, 1},
+		{"initContainers also scanned",
+			`apiVersion: v1
+kind: Pod
+spec:
+  initContainers:
+    - name: init
+      image: alpine
+  containers:
+    - name: main
+      image: alpine
+      resources:
+        limits:
+          memory: 256Mi
+          cpu: 200m
+`, 1},
+		{"skip: ConfigMap kind",
+			`apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cm
+`, 0},
 	}
-	if cands := m.Check("/abs/d.yaml", "d.yaml", []byte(good)); len(cands) != 0 {
-		t.Errorf("unexpected match when limits present: %+v", cands)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := m.Check("/abs/d.yaml", "d.yaml", []byte(c.src))
+			if len(got) != c.want {
+				t.Errorf("got %d candidates, want %d: %+v", len(got), c.want, got)
+			}
+		})
+	}
+}
+
+func TestK8sMissingCPULimit(t *testing.T) {
+	m := k8sMissingCPULimit()
+	cases := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{"bad: memory-only limits, no cpu",
+			`apiVersion: apps/v1
+kind: Deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: c
+          image: alpine
+          resources:
+            limits:
+              memory: 256Mi
+`, 1},
+		{"good: cpu limit present",
+			`apiVersion: apps/v1
+kind: Deployment
+spec:
+  template:
+    spec:
+      containers:
+        - name: c
+          image: alpine
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+`, 0},
+		{"bad: no resources block",
+			`apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: c
+      image: alpine
+`, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := m.Check("/abs/d.yaml", "d.yaml", []byte(c.src))
+			if len(got) != c.want {
+				t.Errorf("got %d, want %d: %+v", len(got), c.want, got)
+			}
+		})
+	}
+}
+
+func TestK8sLimitBelowRequest(t *testing.T) {
+	m := k8sLimitBelowRequest()
+	cases := []struct {
+		name string
+		src  string
+		want int
+	}{
+		{"bad: memory limit < memory request",
+			`apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: c
+      image: alpine
+      resources:
+        requests:
+          memory: 512Mi
+        limits:
+          memory: 256Mi
+`, 1},
+		{"bad: cpu limit < cpu request",
+			`apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: c
+      image: alpine
+      resources:
+        requests:
+          cpu: 500m
+        limits:
+          cpu: 200m
+`, 1},
+		{"good: limit >= request",
+			`apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: c
+      image: alpine
+      resources:
+        requests:
+          memory: 128Mi
+          cpu: 100m
+        limits:
+          memory: 256Mi
+          cpu: 200m
+`, 0},
+		{"good: requests only, no limits (different matcher's job)",
+			`apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: c
+      image: alpine
+      resources:
+        requests:
+          memory: 128Mi
+`, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := m.Check("/abs/d.yaml", "d.yaml", []byte(c.src))
+			if len(got) != c.want {
+				t.Errorf("got %d, want %d: %+v", len(got), c.want, got)
+			}
+		})
 	}
 }
 
