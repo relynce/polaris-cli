@@ -349,7 +349,14 @@ func CmdScan(args []string, version string) {
 				scanModeFlag = strings.TrimPrefix(args[i], "--mode=")
 			} else if strings.HasPrefix(args[i], "--profile=") {
 				profileFlag = strings.TrimPrefix(args[i], "--profile=")
-			} else if !strings.HasPrefix(args[i], "-") && service == "" {
+			} else if strings.HasPrefix(args[i], "-") {
+				// po-c2iff: unrecognized flag. Silently ignoring used to
+				// hide typos and renamed flags (e.g. someone trying the
+				// old --diff after it folded into --changed-only).
+				fmt.Fprintf(os.Stderr, "Error: unrecognized flag %q\n", args[i])
+				fmt.Fprintln(os.Stderr, "Run 'rvl scan --help' for usage.")
+				os.Exit(1)
+			} else if service == "" {
 				service = args[i]
 			}
 		}
