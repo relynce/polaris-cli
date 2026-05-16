@@ -17,7 +17,9 @@ func iacMatchers() []scanner.Matcher {
 		k8sMissingMemoryLimit(),
 		k8sMissingCPULimit(),
 		k8sLimitBelowRequest(),
+		k8sMutableImageTag(),
 		dockerfileNoHealthcheck(),
+		dockerfileMutableBaseImage(),
 		terraformNoEncryption(),
 	}
 }
