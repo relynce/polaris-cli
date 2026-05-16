@@ -125,6 +125,12 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 		// finding slug + path to match the waiver's matcher + path glob.
 		appliedWaivers = activeWaivers(sc.Waivers, time.Now())
 	}
+	// po-i7mz2: resolved base ref is shared between --changed-only file
+	// scoping and the change-aware classification step. Classification
+	// only runs when we have a reachable base ref AND we're scoped to
+	// changed files (otherwise classifying findings in unchanged files
+	// as "pre-existing" is misleading).
+	var changedHunks map[string][]scanner.LineRange
 	if opts.changedOnly {
 		var yamlBaseRef string
 		if projectCfg != nil && projectCfg.Scanner != nil {
@@ -135,9 +141,9 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 			FlagBaseRef: opts.baseRef,
 			YAMLBaseRef: yamlBaseRef,
 			Env: map[string]string{
-				"RVL_BASE_REF":                          os.Getenv("RVL_BASE_REF"),
-				"GITHUB_BASE_REF":                       os.Getenv("GITHUB_BASE_REF"),
-				"CI_MERGE_REQUEST_TARGET_BRANCH_NAME":   os.Getenv("CI_MERGE_REQUEST_TARGET_BRANCH_NAME"),
+				"RVL_BASE_REF":                        os.Getenv("RVL_BASE_REF"),
+				"GITHUB_BASE_REF":                     os.Getenv("GITHUB_BASE_REF"),
+				"CI_MERGE_REQUEST_TARGET_BRANCH_NAME": os.Getenv("CI_MERGE_REQUEST_TARGET_BRANCH_NAME"),
 			},
 		}
 		res, err := scanner.ResolveBaseRef(envCfg)
@@ -154,6 +160,11 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 				os.Exit(2)
 			}
 			scanOpts.OnlyFiles = files
+			changedHunks, err = scanner.ResolveChangedHunks(absTarget, res.Ref)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: git diff hunks: %v\n", err)
+				os.Exit(2)
+			}
 		}
 	}
 
@@ -168,6 +179,14 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 		os.Exit(2)
 	}
 	findings := scanner.Convert(cands, allMatchers, service)
+
+	// po-i7mz2: classify findings as new vs pre-existing against the
+	// changed hunks (when --changed-only resolved a base ref). Tags
+	// each finding's Status; nothing is dropped here. Pre-existing
+	// findings will appear in output but won't fail the CI gate.
+	if changedHunks != nil {
+		scanner.ClassifyFindings(findings, changedHunks)
+	}
 
 	// po-qs96.5: apply yaml-defined waivers post-scan. Floor matchers
 	// remain when strict_enforcement is on regardless of any yaml waiver.
@@ -629,12 +648,19 @@ func runListMatchers(sourceFilter, format string) {
 	}
 }
 
-// exitOnSeverity sets the process exit code per the existing --ci
-// semantics: 1 if any critical or high finding is present, 0 otherwise.
+// exitOnSeverity sets the process exit code based on whether any
+// gating finding is present. A finding gates when its severity is
+// critical or high AND its Status is not "pre-existing". When
+// classification didn't run (Status empty, no base ref), behavior
+// matches the original --ci semantics: any critical/high gates.
 // Errors during the scan exit with 2 (set elsewhere).
+//
+// po-i7mz2: pre-existing findings appear in output but never gate.
+// The intent is the staticcheck `--new-from-rev` precedent: surface
+// "your edit landed next to a known problem" without blocking the
+// build on tech debt.
 func exitOnSeverity(findings []scanner.ScanFinding) {
-	c := severityCounts(findings)
-	if c["critical"] > 0 || c["high"] > 0 {
+	if scanner.HasGatingFindings(findings) {
 		os.Exit(1)
 	}
 	os.Exit(0)

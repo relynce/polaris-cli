@@ -29,6 +29,13 @@ type ScanFinding struct {
 	// (not by title-substring against the matcher description).
 	Slug       string `json:"slug,omitempty"`
 	Confidence string `json:"confidence,omitempty"`
+
+	// po-i7mz2: classification when change-aware scanning is active.
+	// "new" = finding lands inside a changed hunk vs the base ref;
+	// "pre-existing" = in a changed file but outside any hunk, or in
+	// an unchanged file. Empty means classification did not run
+	// (no base ref available); callers gate as if all findings are new.
+	Status string `json:"status,omitempty"`
 }
 
 // ScanProvenance carries the matcher provenance fields that influence the

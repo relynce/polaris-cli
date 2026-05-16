@@ -80,6 +80,13 @@ func renderScanReportMarkdown(target, service string, findings []scanner.ScanFin
 	fmt.Fprintf(&sb, "| %s Low      | %d |\n", severityIcon("low"), counts["low"])
 	fmt.Fprintf(&sb, "| **Total**  | **%d** |\n\n", len(findings))
 
+	// po-i7mz2: when classification ran (change-aware scan vs base ref),
+	// surface how many findings are new vs pre-existing. Pre-existing
+	// findings appear in output but don't gate the CI exit code.
+	if nNew, nPre := classificationCounts(findings); nNew+nPre > 0 {
+		fmt.Fprintf(&sb, "**Change-aware:** %d new, %d pre-existing (advisory, does not gate).\n\n", nNew, nPre)
+	}
+
 	// Category x severity matrix.
 	sb.WriteString("## Findings by Category\n\n")
 	sb.WriteString(renderCategoryMatrix(findings))
@@ -168,7 +175,13 @@ func groupFindings(findings []scanner.ScanFinding) []findingGroup {
 			order = append(order, k)
 		}
 		if len(f.Evidence) > 0 && f.Evidence[0].Path != "" {
-			g.Locations = append(g.Locations, fmt.Sprintf("%s:%d", f.Evidence[0].Path, f.Evidence[0].LineNumber))
+			loc := fmt.Sprintf("%s:%d", f.Evidence[0].Path, f.Evidence[0].LineNumber)
+			// po-i7mz2: tag pre-existing findings inline so readers can
+			// see which entries are advisory vs which will gate CI.
+			if f.Status == scanner.StatusPreExisting {
+				loc += " [pre-existing]"
+			}
+			g.Locations = append(g.Locations, loc)
 		}
 	}
 
@@ -299,6 +312,23 @@ func severityCountsMap(findings []scanner.ScanFinding) map[string]int {
 		out[strings.ToLower(f.Impact)]++
 	}
 	return out
+}
+
+// classificationCounts returns (new, pre-existing) counts for the
+// po-i7mz2 change-aware mode. Returns (0, 0) when classification
+// didn't run (all Status empty), which is the signal to omit the
+// breakdown from the report.
+func classificationCounts(findings []scanner.ScanFinding) (int, int) {
+	var nNew, nPre int
+	for _, f := range findings {
+		switch f.Status {
+		case scanner.StatusNew:
+			nNew++
+		case scanner.StatusPreExisting:
+			nPre++
+		}
+	}
+	return nNew, nPre
 }
 
 // humanBytes renders a byte count as a short human-readable string.
