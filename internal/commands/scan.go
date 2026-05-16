@@ -229,6 +229,7 @@ func CmdScan(args []string, version string) {
 	var prComment bool // po-qs96.4
 	var noDedupe bool  // po-jlsd6
 	var scanModeFlag string // po-f96kz
+	var profileFlag string  // po-3vsvk
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -326,6 +327,13 @@ func CmdScan(args []string, version string) {
 			}
 			i++
 			scanModeFlag = args[i]
+		case "--profile":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --profile requires a value")
+				os.Exit(1)
+			}
+			i++
+			profileFlag = args[i]
 		default:
 			if strings.HasPrefix(args[i], "--target=") {
 				targetDir = strings.TrimPrefix(args[i], "--target=")
@@ -339,6 +347,8 @@ func CmdScan(args []string, version string) {
 				baseRef = strings.TrimPrefix(args[i], "--base=")
 			} else if strings.HasPrefix(args[i], "--mode=") {
 				scanModeFlag = strings.TrimPrefix(args[i], "--mode=")
+			} else if strings.HasPrefix(args[i], "--profile=") {
+				profileFlag = strings.TrimPrefix(args[i], "--profile=")
 			} else if !strings.HasPrefix(args[i], "-") && service == "" {
 				service = args[i]
 			}
@@ -366,6 +376,7 @@ func CmdScan(args []string, version string) {
 			prComment:            prComment,
 			noDedupe:             noDedupe,
 			mode:                 scanModeFlag,
+			profile:              profileFlag,
 		})
 		return
 	}

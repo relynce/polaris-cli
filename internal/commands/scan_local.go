@@ -34,6 +34,7 @@ type localScanArgs struct {
 	prComment            bool // po-qs96.4: emit sticky-comment markdown
 	noDedupe             bool // po-jlsd6: suppress grouped output, emit flat per-instance only
 	mode                 string // po-f96kz: "" | enforce | eval — eval always exits 0
+	profile              string // po-3vsvk: matcher profile (fast | full | <custom>)
 }
 
 // runLocalScan is the --local code path. Builds a matcher list, runs
@@ -95,6 +96,42 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	}
 	if opts.matchersFlag != "" {
 		scanOpts.OnlyMatchers = splitCSV(opts.matchersFlag)
+	}
+	// po-3vsvk: --profile flag > .revelara.yaml scanner.profile >
+	// implicit "" (no filter / full). Profile slug allowlists either
+	// replace OnlyMatchers (when --matchers was not set) or intersect
+	// with it (when both are set).
+	profileName := opts.profile
+	if profileName == "" && projectCfg != nil && projectCfg.Scanner != nil {
+		profileName = projectCfg.Scanner.Profile
+	}
+	if profileName != "" {
+		var userProfiles map[string][]string
+		if projectCfg != nil && projectCfg.Scanner != nil {
+			userProfiles = projectCfg.Scanner.Profiles
+		}
+		profileSlugs, perr := scanner.ResolveProfile(profileName, allMatchers, userProfiles)
+		if perr != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", perr)
+			os.Exit(1)
+		}
+		if len(profileSlugs) > 0 {
+			if len(scanOpts.OnlyMatchers) == 0 {
+				scanOpts.OnlyMatchers = profileSlugs
+			} else {
+				allow := make(map[string]bool, len(profileSlugs))
+				for _, s := range profileSlugs {
+					allow[s] = true
+				}
+				filtered := scanOpts.OnlyMatchers[:0]
+				for _, s := range scanOpts.OnlyMatchers {
+					if allow[s] {
+						filtered = append(filtered, s)
+					}
+				}
+				scanOpts.OnlyMatchers = filtered
+			}
+		}
 	}
 
 	// .revelara.yaml `scanner` overrides. PRD §Configuration in

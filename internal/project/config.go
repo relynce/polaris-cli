@@ -48,6 +48,17 @@ type ScannerConfig struct {
 	// gate on. CLI --mode overrides this value.
 	Mode string `yaml:"mode,omitempty"`
 
+	// po-3vsvk: named matcher profile to activate by default.
+	// Built-ins: "fast" (regex-impl matchers only) and "full" (all).
+	// Custom names must appear in Profiles below. CLI --profile overrides.
+	Profile string `yaml:"profile,omitempty"`
+
+	// po-3vsvk: user-defined or built-in-override profile slug lists.
+	// Keys are profile names; values are explicit lists of matcher
+	// slugs. A user key matching a built-in name (fast, full) replaces
+	// the built-in's computed list.
+	Profiles map[string][]string `yaml:"profiles,omitempty"`
+
 	// po-qs96.5: time-bounded, reason-bearing waivers for known-acceptable
 	// patterns. Different from ExcludeMatchers (no-questions-asked
 	// suppression). Each waiver gets logged to the polaris waivers_audit
