@@ -228,6 +228,7 @@ func CmdScan(args []string, version string) {
 	var scanAllOnMissingBase bool
 	var prComment bool // po-qs96.4
 	var noDedupe bool  // po-jlsd6
+	var scanModeFlag string // po-f96kz
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -318,6 +319,13 @@ func CmdScan(args []string, version string) {
 			prComment = true
 		case "--no-dedupe":
 			noDedupe = true
+		case "--mode":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --mode requires a value (enforce|eval)")
+				os.Exit(1)
+			}
+			i++
+			scanModeFlag = args[i]
 		default:
 			if strings.HasPrefix(args[i], "--target=") {
 				targetDir = strings.TrimPrefix(args[i], "--target=")
@@ -329,6 +337,8 @@ func CmdScan(args []string, version string) {
 				matchersFlag = strings.TrimPrefix(args[i], "--matchers=")
 			} else if strings.HasPrefix(args[i], "--base=") {
 				baseRef = strings.TrimPrefix(args[i], "--base=")
+			} else if strings.HasPrefix(args[i], "--mode=") {
+				scanModeFlag = strings.TrimPrefix(args[i], "--mode=")
 			} else if !strings.HasPrefix(args[i], "-") && service == "" {
 				service = args[i]
 			}
@@ -355,6 +365,7 @@ func CmdScan(args []string, version string) {
 			ciMode:               ciMode,
 			prComment:            prComment,
 			noDedupe:             noDedupe,
+			mode:                 scanModeFlag,
 		})
 		return
 	}

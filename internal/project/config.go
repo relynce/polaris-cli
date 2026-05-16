@@ -42,6 +42,12 @@ type ScannerConfig struct {
 	Tolerance           *ToleranceConfig `yaml:"tolerance,omitempty"`
 	StrictEnforcement   *bool            `yaml:"strict_enforcement,omitempty"`
 
+	// po-f96kz: enforce (default) gates CI on critical/high findings;
+	// eval reports findings but always exits 0. Useful for rolling the
+	// scanner out to a team that wants visibility before flipping the
+	// gate on. CLI --mode overrides this value.
+	Mode string `yaml:"mode,omitempty"`
+
 	// po-qs96.5: time-bounded, reason-bearing waivers for known-acceptable
 	// patterns. Different from ExcludeMatchers (no-questions-asked
 	// suppression). Each waiver gets logged to the polaris waivers_audit

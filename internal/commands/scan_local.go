@@ -33,6 +33,7 @@ type localScanArgs struct {
 	ciMode               bool
 	prComment            bool // po-qs96.4: emit sticky-comment markdown
 	noDedupe             bool // po-jlsd6: suppress grouped output, emit flat per-instance only
+	mode                 string // po-f96kz: "" | enforce | eval — eval always exits 0
 }
 
 // runLocalScan is the --local code path. Builds a matcher list, runs
@@ -244,6 +245,21 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	// existing comment instead of creating duplicates.
 	if opts.prComment {
 		emitPRComment(service, findings, projectCfg, submitResp)
+	}
+	// po-f96kz: resolve scan mode from CLI override > config > default.
+	// eval short-circuits the severity gate so adoption-stage rollouts
+	// can report findings without failing CI.
+	var cfgMode string
+	if projectCfg != nil && projectCfg.Scanner != nil {
+		cfgMode = projectCfg.Scanner.Mode
+	}
+	resolvedMode, err := resolveScanMode(opts.mode, cfgMode)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(2)
+	}
+	if resolvedMode == scanModeEval {
+		os.Exit(0)
 	}
 	exitOnSeverity(findings)
 }
@@ -664,14 +680,6 @@ func exitOnSeverity(findings []scanner.ScanFinding) {
 		os.Exit(1)
 	}
 	os.Exit(0)
-}
-
-func severityCounts(findings []scanner.ScanFinding) map[string]int {
-	out := map[string]int{}
-	for _, f := range findings {
-		out[strings.ToLower(f.Impact)]++
-	}
-	return out
 }
 
 func splitCSV(s string) []string {
