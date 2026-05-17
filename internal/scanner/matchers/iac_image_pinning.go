@@ -100,6 +100,7 @@ func k8sMutableImageTag() scanner.Matcher {
 				LineNumber:  lineOf(text, m[0]),
 				Snippet:     "image " + ref + " is not pinned (no digest, mutable tag)",
 				Description: "Kubernetes manifest references an image without a digest pin",
+				ImageRef:    ref,
 			})
 		}
 		return out
@@ -124,6 +125,10 @@ func k8sMutableImageTag() scanner.Matcher {
 			SourcePatternTypes: []string{"failure_mode"},
 			RelatedControls:    []string{"RC-014", "RC-041"},
 		},
+		// Rollup per image ref so the same image referenced in multiple
+		// manifests (e.g., base and overlay both list backend:v3.2.1)
+		// collapses into one Finding.
+		RollupKey: scanner.RollupByImageRef,
 	}
 }
 

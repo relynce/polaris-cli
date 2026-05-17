@@ -106,6 +106,11 @@ func missingHealthEndpointHeuristic() scanner.Matcher {
 			SourcePatternTypes: []string{"failure_mode"},
 			RelatedControls:    []string{"RC-002"},
 		},
+		// Rollup per project: one finding per scan ("the service has no
+		// health endpoint anywhere"). The polaris repo had this firing
+		// once per binary-with-routes file (5x) which over-reports a
+		// single architectural fact.
+		RollupKey: scanner.RollupByProject,
 	}
 }
 

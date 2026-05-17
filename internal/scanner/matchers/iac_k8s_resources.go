@@ -29,10 +29,11 @@ var podSpecPathByKind = map[string][]string{
 // podContainer is the per-container view walkPodContainers hands to the
 // caller. Resources may be nil if the container has no resources block.
 type podContainer struct {
-	Kind      string
-	Name      string
-	Line      int        // 1-based file line of the container's '- name:' entry
-	Resources *yaml.Node // mapping node for resources, or nil
+	Kind         string
+	Name         string     // container name
+	WorkloadName string     // metadata.name of the enclosing workload (Deployment, StatefulSet, etc.)
+	Line         int        // 1-based file line of the container's '- name:' entry
+	Resources    *yaml.Node // mapping node for resources, or nil
 }
 
 // walkPodContainers parses a (possibly multi-doc) YAML stream and invokes
@@ -59,6 +60,7 @@ func walkPodContainers(src []byte, fn func(c podContainer)) {
 		if !ok {
 			continue
 		}
+		workloadName := mapStringValue(mapValue(root, "metadata"), "name")
 		podSpec := descend(root, path)
 		if podSpec == nil {
 			continue
@@ -74,10 +76,11 @@ func walkPodContainers(src []byte, fn func(c podContainer)) {
 				}
 				name := mapStringValue(item, "name")
 				fn(podContainer{
-					Kind:      kind,
-					Name:      name,
-					Line:      item.Line,
-					Resources: mapValue(item, "resources"),
+					Kind:         kind,
+					Name:         name,
+					WorkloadName: workloadName,
+					Line:         item.Line,
+					Resources:    mapValue(item, "resources"),
 				})
 			}
 		}
@@ -274,6 +277,8 @@ func resourceLimitMatcher(spec resourceLimitSpec) scanner.Matcher {
 					LineNumber:  c.Line,
 					Snippet:     fmt.Sprintf("container %q missing %s limit", c.Name, spec.Resource),
 					Description: spec.Description,
+					K8sKind:     c.Kind,
+					K8sName:     c.WorkloadName,
 				})
 			case modeBelowRequest:
 				for _, resource := range []string{"memory", "cpu"} {
@@ -287,6 +292,8 @@ func resourceLimitMatcher(spec resourceLimitSpec) scanner.Matcher {
 						LineNumber:  c.Line,
 						Snippet:     fmt.Sprintf("container %q %s limit %s < request %s", c.Name, resource, lv, rv),
 						Description: spec.Description,
+						K8sKind:     c.Kind,
+						K8sName:     c.WorkloadName,
 					})
 				}
 			}
@@ -313,5 +320,9 @@ func resourceLimitMatcher(spec resourceLimitSpec) scanner.Matcher {
 			SourcePatternTypes: []string{"failure_mode"},
 			RelatedControls:    []string{"RC-025"},
 		},
+		// Rollup per (Kind, Name): the same Deployment patched across
+		// dev/staging/prod overlays is one decision, not N. Container-
+		// level granularity is preserved in Evidence.
+		RollupKey: scanner.RollupByK8sWorkload,
 	}
 }

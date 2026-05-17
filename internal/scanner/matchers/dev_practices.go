@@ -46,5 +46,10 @@ func noErrorWrapping() scanner.Matcher {
 			SourcePatternTypes: []string{"failure_mode"},
 			RelatedControls:    []string{"RC-021"},
 		},
+		// Rollup per package: this is a stylistic Low-severity matcher;
+		// 100+ findings per package is noise. One Finding per Go package
+		// with each occurrence listed gives the developer one entry per
+		// team to address.
+		RollupKey: scanner.RollupByPackage,
 	}
 }

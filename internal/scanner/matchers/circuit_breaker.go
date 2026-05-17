@@ -85,6 +85,11 @@ func missingCircuitBreaker() scanner.Matcher {
 		Impl:         scanner.ImplHeuristic,
 		Source:       "curated",
 		Check:        check,
+		// Project-level finding: "no circuit breaker library is imported
+		// anywhere in this module." One Finding per scan with every
+		// outbound-call importing file rolled into Evidence[]. Replaces
+		// the prior 116-per-scan output on polaris.
+		RollupKey: scanner.RollupByProject,
 		Provenance: scanner.Provenance{
 			FailureDescription: "Absence of circuit breakers turns single-service failures into multi-service cascades. Heuristic detection cannot identify call-graph wrapping; this matcher errs toward false positives by design.",
 			IncidentFrequency:  "Common in dependency-failure causal chains (corpus-validation pending)",

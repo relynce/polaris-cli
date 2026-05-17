@@ -77,6 +77,20 @@ func findK8sKind(doc string, kind string) (bool, int) {
 	return true, lineOf(doc, loc[0])
 }
 
+// findK8sMetadataName extracts metadata.name from a single YAML doc. The
+// regex is intentionally simple: it matches `name: <value>` at indent 2
+// inside a `metadata:` block. Returns "" if no name is found. Used by
+// k8s matchers that roll up by (kind, name) so the same workload patched
+// across overlay files collapses into one Finding.
+func findK8sMetadataName(doc string) string {
+	re := regexp.MustCompile(`(?m)^metadata:\s*\n(?:\s*[a-zA-Z][^\n]*\n)*?\s+name:\s*([^\s#]+)`)
+	m := re.FindStringSubmatch(doc)
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
 func lineOf(s string, off int) int {
 	if off > len(s) {
 		off = len(s)
@@ -141,11 +155,12 @@ func k8sMissingFieldMatcher(spec missingFieldSpec) scanner.Matcher {
 		var out []scanner.Candidate
 		fieldRe := regexp.MustCompile(regexp.QuoteMeta(spec.Field))
 		for _, doc := range splitYAMLDocs(src) {
-			ok, kindLine := false, 0
+			ok, kindLine, workloadKind := false, 0, ""
 			for _, kind := range []string{"Deployment", "StatefulSet", "DaemonSet"} {
 				if has, line := findK8sKind(doc.Body, kind); has {
 					ok = true
 					kindLine = line
+					workloadKind = kind
 					break
 				}
 			}
@@ -161,6 +176,8 @@ func k8sMissingFieldMatcher(spec missingFieldSpec) scanner.Matcher {
 				LineNumber:  doc.StartLine + kindLine - 1,
 				Snippet:     "K8s workload missing " + spec.Field,
 				Description: spec.Description,
+				K8sKind:     workloadKind,
+				K8sName:     findK8sMetadataName(doc.Body),
 			})
 		}
 		return out
@@ -178,6 +195,10 @@ func k8sMissingFieldMatcher(spec missingFieldSpec) scanner.Matcher {
 		Source:       "curated",
 		Check:        check,
 		Provenance:   spec.Provenance,
+		// Rollup per (Kind, Name) so overlay-file dupes collapse. Falls
+		// back to per-location when metadata.name is missing (e.g.,
+		// templated manifests).
+		RollupKey: scanner.RollupByK8sWorkload,
 	}
 }
 
