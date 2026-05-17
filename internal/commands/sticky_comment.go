@@ -61,7 +61,7 @@ func RenderPRComment(in PRCommentInput) string {
 	sb.WriteString(StickyCommentMarker)
 	sb.WriteByte('\n')
 
-	sb.WriteString(fmt.Sprintf("## Revelara Reliability — Risk Delta: %s\n\n", signedInt(in.NetDelta)))
+	fmt.Fprintf(&sb, "## Revelara Reliability — Risk Delta: %s\n\n", signedInt(in.NetDelta))
 
 	// Banner: missing .revelara.yaml
 	if !in.HasRevelaraYAML {
@@ -83,11 +83,11 @@ func RenderPRComment(in PRCommentInput) string {
 			pct = float64(in.MeasuredState) / float64(in.EffectiveTolerance.ToleranceTarget) * 100.0
 		}
 		if over {
-			sb.WriteString(fmt.Sprintf("**Budget:** %d/%d **OVER BUDGET** — waiver required to merge.\n\n",
-				in.MeasuredState, in.EffectiveTolerance.ToleranceTarget))
+			fmt.Fprintf(&sb, "**Budget:** %d/%d **OVER BUDGET** — waiver required to merge.\n\n",
+				in.MeasuredState, in.EffectiveTolerance.ToleranceTarget)
 		} else {
-			sb.WriteString(fmt.Sprintf("**Budget:** %d/%d (%.1f%% used) — within tolerance.\n\n",
-				in.MeasuredState, in.EffectiveTolerance.ToleranceTarget, pct))
+			fmt.Fprintf(&sb, "**Budget:** %d/%d (%.1f%% used) — within tolerance.\n\n",
+				in.MeasuredState, in.EffectiveTolerance.ToleranceTarget, pct)
 		}
 		if in.EffectiveTolerance.StrictEnforcement {
 			sb.WriteString("> **Strict enforcement mode is on.** Floor matchers (SQL injection, ")
@@ -104,15 +104,15 @@ func RenderPRComment(in PRCommentInput) string {
 		rows := append([]ServiceBudget(nil), in.PerServiceBreakdown...)
 		sort.Slice(rows, func(i, j int) bool { return rows[i].Service < rows[j].Service })
 		for _, r := range rows {
-			sb.WriteString(fmt.Sprintf("| %s | %s | %d / %d | %s |\n",
-				r.Service, signedInt(r.NetDelta), r.MeasuredState, r.Tolerance, statusEmoji(r.Status)))
+			fmt.Fprintf(&sb, "| %s | %s | %d / %d | %s |\n",
+				r.Service, signedInt(r.NetDelta), r.MeasuredState, r.Tolerance, statusEmoji(r.Status))
 		}
 		sb.WriteByte('\n')
 	}
 
 	// New findings table
 	if len(in.NewFindings) > 0 {
-		sb.WriteString(fmt.Sprintf("### New findings (%d)\n\n", len(in.NewFindings)))
+		fmt.Fprintf(&sb, "### New findings (%d)\n\n", len(in.NewFindings))
 		sb.WriteString("| Severity | Matcher | Location |\n")
 		sb.WriteString("|---|---|---|\n")
 		for _, f := range in.NewFindings {
@@ -121,7 +121,7 @@ func RenderPRComment(in PRCommentInput) string {
 				loc = fmt.Sprintf("%s:%d", f.Evidence[0].Path, f.Evidence[0].LineNumber)
 			}
 			sev := strings.ToUpper(f.Impact)
-			sb.WriteString(fmt.Sprintf("| %s | %s | %s |\n", sev, f.Title, loc))
+			fmt.Fprintf(&sb, "| %s | %s | %s |\n", sev, f.Title, loc)
 		}
 		sb.WriteByte('\n')
 	}
@@ -130,7 +130,7 @@ func RenderPRComment(in PRCommentInput) string {
 	// follow-up; today this surfaces the count of risks that went stale
 	// because the scan didn't surface them again).
 	if in.ResolvedCount > 0 {
-		sb.WriteString(fmt.Sprintf("### Resolved this scan: %d\n\n", in.ResolvedCount))
+		fmt.Fprintf(&sb, "### Resolved this scan: %d\n\n", in.ResolvedCount)
 	}
 
 	// Provenance section: surface incident-grounding for the most-impactful
@@ -143,7 +143,7 @@ func RenderPRComment(in PRCommentInput) string {
 
 	// Footer with Polaris link + waiver hint
 	if in.PolarisRiskListURL != "" {
-		sb.WriteString(fmt.Sprintf("[View full report in Polaris →](%s)\n\n", in.PolarisRiskListURL))
+		fmt.Fprintf(&sb, "[View full report in Polaris →](%s)\n\n", in.PolarisRiskListURL)
 	}
 	sb.WriteString("**Waiver options:** add a yaml waiver to `.revelara.yaml`, comment `/rvl waive <matcher>` ")
 	sb.WriteString("(requires `reliability-waiver` permission), or apply the `rvl-waiver-required` label.\n")

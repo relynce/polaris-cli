@@ -477,9 +477,9 @@ func appendGitHubSummary(summaryFile string, resp ReviewResponse) {
 			buf.WriteString("### Blocking Risks\n\n")
 			for _, risk := range resp.BlockingRisks {
 				priority := classifyPriority(risk.Score)
-				buf.WriteString(fmt.Sprintf("- **[%s]** %s (Score: %d, %s)\n", risk.RiskCode, risk.Title, risk.Score, priority))
+				fmt.Fprintf(&buf, "- **[%s]** %s (Score: %d, %s)\n", risk.RiskCode, risk.Title, risk.Score, priority)
 				if risk.Description != "" {
-					buf.WriteString(fmt.Sprintf("  - %s\n", risk.Description))
+					fmt.Fprintf(&buf, "  - %s\n", risk.Description)
 				}
 			}
 			buf.WriteString("\n")
@@ -493,13 +493,13 @@ func appendGitHubSummary(summaryFile string, resp ReviewResponse) {
 
 	if resp.RiskSummary != nil && resp.RiskSummary.Total > 0 {
 		buf.WriteString("### Risk Summary\n\n")
-		buf.WriteString(fmt.Sprintf("Total: %d | Critical: %d | High: %d | Medium: %d | Low: %d\n\n",
+		fmt.Fprintf(&buf, "Total: %d | Critical: %d | High: %d | Medium: %d | Low: %d\n\n",
 			resp.RiskSummary.Total, resp.RiskSummary.Critical, resp.RiskSummary.High,
-			resp.RiskSummary.Medium, resp.RiskSummary.Low))
+			resp.RiskSummary.Medium, resp.RiskSummary.Low)
 	}
 
 	if resp.DeepLink != "" {
-		buf.WriteString(fmt.Sprintf("[View Full Report](%s)\n", resp.DeepLink))
+		fmt.Fprintf(&buf, "[View Full Report](%s)\n", resp.DeepLink)
 	}
 
 	f.Write(buf.Bytes())

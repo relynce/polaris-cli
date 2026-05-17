@@ -17,6 +17,9 @@ clean:
 test test-short:
 	go test -short ./...
 
+lint: ## Run golangci-lint
+	golangci-lint run ./...
+
 # Acceptance test: builds the rvl binary, runs it against the Phase 1 fixture,
 # and asserts the PRD's integration acceptance criteria. Gated under the
 # `acceptance` build tag so `go test -short ./...` does not invoke it.

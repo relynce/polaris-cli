@@ -651,12 +651,13 @@ func CmdScan(args []string, version string) {
 	if len(response.Findings) > 0 {
 		fmt.Println("Findings:")
 		for _, f := range response.Findings {
-			status := f.Status
-			if status == "created" {
+			var status string
+			switch f.Status {
+			case "created":
 				status = "NEW"
-			} else if status == "updated" {
+			case "updated":
 				status = "UPD"
-			} else {
+			default:
 				status = "---"
 			}
 			fmt.Printf("  [%s] %s: %s (score: %d, %s)\n",

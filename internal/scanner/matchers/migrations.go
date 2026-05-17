@@ -239,8 +239,8 @@ func splitSQLFields(line string) []string {
 	var fields []string
 	var current strings.Builder
 	for _, r := range line {
-		switch {
-		case r == ' ' || r == '\t':
+		switch r {
+		case ' ', '\t':
 			if current.Len() > 0 {
 				fields = append(fields, current.String())
 				current.Reset()
