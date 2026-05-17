@@ -549,6 +549,15 @@ func CmdScan(args []string, version string) {
 		return
 	}
 
+	// po-6u5yx: warn (don't block) when findings have no component and no
+	// linked_services. They'll land at the bare project label and split
+	// Reliability Budget rows. Surfaced before submit so the user can ^C
+	// and rerun with proper component fields.
+	if missing := countFindingsWithoutComponent(scanReq.Findings); missing > 0 {
+		fmt.Fprintf(os.Stderr, "Warning: %d/%d findings have no `component` or `linked_services` and will be attributed to the bare service label %q.\n",
+			missing, len(scanReq.Findings), scanReq.Service)
+	}
+
 	response, err := submitScan(cfg, &scanReq)
 	if err != nil {
 		if scanMode == "ci" {
@@ -749,6 +758,34 @@ func submitScan(cfg *config.Config, scanReq *ScanRequest) (*ScanResponse, error)
 	}
 }
 
+// countFindingsWithoutComponent returns how many findings lack both a
+// `component` field and `linked_services`. po-6u5yx: these findings fall
+// back to the bare service label and split Reliability Budget rows.
+//
+// The findings slice is []interface{} (the CLI deep-merges arbitrary JSON
+// shapes from scan-parts), so we inspect each entry as a map.
+func countFindingsWithoutComponent(findings []interface{}) int {
+	n := 0
+	for _, raw := range findings {
+		m, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		hasComponent := false
+		if c, ok := m["component"].(string); ok && strings.TrimSpace(c) != "" {
+			hasComponent = true
+		}
+		hasLinkedServices := false
+		if ls, ok := m["linked_services"].([]interface{}); ok && len(ls) > 0 {
+			hasLinkedServices = true
+		}
+		if !hasComponent && !hasLinkedServices {
+			n++
+		}
+	}
+	return n
+}
+
 // parseRetryAfter parses an HTTP Retry-After value as either delta-seconds
 // or an HTTP-date. Returns 0 on parse failure (caller falls back to default).
 func parseRetryAfter(v string) time.Duration {
@@ -818,13 +855,25 @@ func mergeScanDir(dir string, scanReq *ScanRequest) error {
 			continue
 		}
 
+		// po-bqzg4: warn on overlapping scalars/objects so the user knows
+		// later files in alphabetical order win. Silent last-write-wins
+		// makes scan-parts ordering accidentally significant.
 		if partial.RepoURL != "" {
+			if scanReq.RepoURL != "" && scanReq.RepoURL != partial.RepoURL {
+				fmt.Fprintf(os.Stderr, "Warning: repo_url in %s overrides earlier value\n", filepath.Base(f))
+			}
 			scanReq.RepoURL = partial.RepoURL
 		}
 		if partial.ControlStructure != nil {
+			if scanReq.ControlStructure != nil {
+				fmt.Fprintf(os.Stderr, "Warning: control_structure in %s overrides earlier value\n", filepath.Base(f))
+			}
 			scanReq.ControlStructure = partial.ControlStructure
 		}
 		if partial.Stack != nil {
+			if scanReq.Stack != nil {
+				fmt.Fprintf(os.Stderr, "Warning: stack in %s overrides earlier value\n", filepath.Base(f))
+			}
 			scanReq.Stack = partial.Stack
 		}
 		if len(partial.Components) > 0 {
