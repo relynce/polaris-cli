@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -527,14 +528,24 @@ func CmdScan(args []string, version string) {
 	scanReq.ScanMode = scanMode
 
 	if dryRun {
-		fmt.Printf("Dry run - would submit to %s:\n", cfg.APIURL)
-		fmt.Printf("  Service: %s\n", scanReq.Service)
-		fmt.Printf("  Mode: %s\n", scanMode)
-		if targetDir != "" {
-			fmt.Printf("  Target: %s\n", targetDir)
+		// po-4g59y: emit JSON on stdout so the /rvl:scan slash command (and
+		// any CI integration) can parse it. Human-readable framing goes to
+		// stderr so stdout stays machine-readable.
+		fmt.Fprintf(os.Stderr, "Dry run - would submit to %s:\n", cfg.APIURL)
+		summary := map[string]any{
+			"dry_run":   true,
+			"api_url":   cfg.APIURL,
+			"service":   scanReq.Service,
+			"mode":      scanMode,
+			"scan_type": scanReq.ScanType,
+			"findings":  len(scanReq.Findings),
 		}
-		fmt.Printf("  Findings: %d\n", len(scanReq.Findings))
-		fmt.Printf("  Scan Type: %s\n", scanReq.ScanType)
+		if targetDir != "" {
+			summary["target"] = targetDir
+		}
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(summary)
 		return
 	}
 
@@ -672,42 +683,110 @@ func printCIOutput(response *ScanResponse) {
 	}
 }
 
-// submitScan sends the scan request to the API and returns the response
+// submitScan sends the scan request to the API and returns the response.
+//
+// po-alt4a: honors Retry-After on a 429 by retrying once after the
+// declared delay (capped at 120s). The CLI exit code is left non-zero so
+// CI gates trip on rate-limit, but the message tells the user the
+// configured retry window instead of "server error (429)".
+//
+// po-vwiag: 401/403 messages include the API URL so the user can spot
+// dev-key-against-prod-URL mismatches.
+//
+// po-m0d82: server JSON Error responses (code+message, post po-cw82g)
+// are parsed and surfaced verbatim so the user knows what failed.
 func submitScan(cfg *config.Config, scanReq *ScanRequest) (*ScanResponse, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
+	const maxRetries = 1
+	const maxBackoff = 120 * time.Second
+
 	body, err := json.Marshal(scanReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
-	req, err := http.NewRequest("POST", cfg.APIURL+"/api/v1/risks/scan", bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	if cfg.ResolvedOrgID != "" {
-		req.Header.Set("X-Organization-ID", cfg.ResolvedOrgID)
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read response body: %w", err)
-	}
-	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		return nil, fmt.Errorf("authentication failed - run 'rvl login' to reconfigure")
-	}
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("server error (%d): %s", resp.StatusCode, string(respBody))
-	}
+
 	var scanResp ScanResponse
-	if err := json.Unmarshal(respBody, &scanResp); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
+	for attempt := 0; ; attempt++ {
+		client := &http.Client{Timeout: 30 * time.Second}
+		req, err := http.NewRequest("POST", cfg.APIURL+"/api/v1/risks/scan", bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		if cfg.ResolvedOrgID != "" {
+			req.Header.Set("X-Organization-ID", cfg.ResolvedOrgID)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("request failed: %w", err)
+		}
+		respBody, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read response body: %w", readErr)
+		}
+
+		switch {
+		case resp.StatusCode == 401 || resp.StatusCode == 403:
+			return nil, fmt.Errorf("authentication failed against %s — run 'rvl login' to reconfigure (status %d)", cfg.APIURL, resp.StatusCode)
+		case resp.StatusCode == 429 && attempt < maxRetries:
+			delay := parseRetryAfter(resp.Header.Get("Retry-After"))
+			if delay <= 0 || delay > maxBackoff {
+				delay = 60 * time.Second
+			}
+			fmt.Fprintf(os.Stderr, "rate limited by server; retrying in %s\n", delay)
+			time.Sleep(delay)
+			continue
+		case resp.StatusCode >= 400:
+			msg, code := decodeServerError(respBody)
+			return nil, fmt.Errorf("server error (%d %s) from %s: %s", resp.StatusCode, code, cfg.APIURL, msg)
+		}
+
+		if err := json.Unmarshal(respBody, &scanResp); err != nil {
+			return nil, fmt.Errorf("parse response: %w", err)
+		}
+		return &scanResp, nil
 	}
-	return &scanResp, nil
+}
+
+// parseRetryAfter parses an HTTP Retry-After value as either delta-seconds
+// or an HTTP-date. Returns 0 on parse failure (caller falls back to default).
+func parseRetryAfter(v string) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	if secs, err := strconv.Atoi(v); err == nil && secs >= 0 {
+		return time.Duration(secs) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil {
+		d := time.Until(t)
+		if d > 0 {
+			return d
+		}
+	}
+	return 0
+}
+
+// decodeServerError extracts message + code from a JSON {code,message}
+// error body (po-cw82g shape). Falls back to the raw body when the
+// response isn't JSON.
+func decodeServerError(body []byte) (message, code string) {
+	var parsed struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+		// Older handlers used {"error": "..."}
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &parsed); err == nil {
+		if parsed.Message != "" {
+			return parsed.Message, parsed.Code
+		}
+		if parsed.Error != "" {
+			return parsed.Error, parsed.Code
+		}
+	}
+	return string(body), ""
 }
 
 // mergeScanDir reads all JSON files from a directory and merges them into
