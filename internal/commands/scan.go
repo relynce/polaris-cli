@@ -231,6 +231,7 @@ func CmdScan(args []string, version string) {
 	var noDedupe bool  // po-jlsd6
 	var scanModeFlag string // po-f96kz
 	var profileFlag string  // po-3vsvk
+	var cleanupOnSuccess bool // po-gg5dg: remove --scan-dir after a 2xx submit
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -335,6 +336,8 @@ func CmdScan(args []string, version string) {
 			}
 			i++
 			profileFlag = args[i]
+		case "--cleanup-on-success":
+			cleanupOnSuccess = true
 		default:
 			if strings.HasPrefix(args[i], "--target=") {
 				targetDir = strings.TrimPrefix(args[i], "--target=")
@@ -560,6 +563,12 @@ func CmdScan(args []string, version string) {
 
 	response, err := submitScan(cfg, &scanReq)
 	if err != nil {
+		// po-gg5dg: on submit failure, remind the user the scan-parts
+		// directory is intact and can be re-submitted as-is. Helps avoid
+		// premature `rm -rf` after a 429 or a transient network error.
+		if scanDir != "" {
+			fmt.Fprintf(os.Stderr, "Scan parts preserved at %s; re-run after resolving the error with:\n  rvl scan --service %s --scan-dir %s\n", scanDir, service, scanDir)
+		}
 		if scanMode == "ci" {
 			ciError := map[string]any{"error": err.Error(), "service": service}
 			jsonOut, _ := json.Marshal(ciError)
@@ -568,6 +577,21 @@ func CmdScan(args []string, version string) {
 		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+
+	// po-gg5dg: on success, either cleanup (if --cleanup-on-success) or
+	// surface the cleanup instruction so the user doesn't accumulate
+	// stale 03-findings.json files across runs.
+	if scanDir != "" {
+		if cleanupOnSuccess {
+			if rmErr := os.RemoveAll(scanDir); rmErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to remove %s: %v\n", scanDir, rmErr)
+			} else {
+				fmt.Fprintf(os.Stderr, "Removed scan parts at %s (--cleanup-on-success)\n", scanDir)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "Scan parts kept at %s; remove with: rm -rf %s\n", scanDir, scanDir)
+		}
 	}
 
 	// CI mode: output JSON and exit with code based on severity
