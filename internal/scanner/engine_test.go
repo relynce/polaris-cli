@@ -228,3 +228,112 @@ func TestConvertSortsStably(t *testing.T) {
 		t.Errorf("sort order wrong; got %+v", findings)
 	}
 }
+
+func TestConvertRollupByProjectCollapsesAllCandidates(t *testing.T) {
+	m := stubMatcher("global", "")
+	m.RollupKey = RollupByProject
+	cands := []Candidate{
+		{Slug: "global", File: "a.go", LineNumber: 1, Description: "a"},
+		{Slug: "global", File: "b.go", LineNumber: 9, Description: "b"},
+		{Slug: "global", File: "c/d.go", LineNumber: 42, Description: "c"},
+	}
+	findings := Convert(cands, []Matcher{m}, "svc")
+	if len(findings) != 1 {
+		t.Fatalf("expected 1 rolled-up finding, got %d", len(findings))
+	}
+	if len(findings[0].Evidence) != 3 {
+		t.Errorf("expected 3 evidence entries on rolled-up finding, got %d", len(findings[0].Evidence))
+	}
+}
+
+func TestConvertRollupByFileCollapsesPerFile(t *testing.T) {
+	m := stubMatcher("inFile", "")
+	m.RollupKey = RollupByFile
+	cands := []Candidate{
+		{Slug: "inFile", File: "a.go", LineNumber: 1},
+		{Slug: "inFile", File: "a.go", LineNumber: 5},
+		{Slug: "inFile", File: "a.go", LineNumber: 9},
+		{Slug: "inFile", File: "b.go", LineNumber: 2},
+	}
+	findings := Convert(cands, []Matcher{m}, "svc")
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings (per file), got %d", len(findings))
+	}
+	byPath := map[string]int{}
+	for _, f := range findings {
+		byPath[f.Evidence[0].Path] = len(f.Evidence)
+	}
+	if byPath["a.go"] != 3 {
+		t.Errorf("expected 3 evidence entries for a.go, got %d", byPath["a.go"])
+	}
+	if byPath["b.go"] != 1 {
+		t.Errorf("expected 1 evidence entry for b.go, got %d", byPath["b.go"])
+	}
+}
+
+func TestConvertRollupByFunctionFallsBackWhenFunctionEmpty(t *testing.T) {
+	// If a matcher declares RollupByFunction but the Candidate has no
+	// EnclosingFunction set, the helper returns "" and convert falls
+	// back to per-location grouping. Two candidates in the same file at
+	// different lines must produce two Findings, not one.
+	m := stubMatcher("fn", "")
+	m.RollupKey = RollupByFunction
+	cands := []Candidate{
+		{Slug: "fn", File: "a.go", LineNumber: 1}, // no EnclosingFunction
+		{Slug: "fn", File: "a.go", LineNumber: 5}, // no EnclosingFunction
+	}
+	findings := Convert(cands, []Matcher{m}, "svc")
+	if len(findings) != 2 {
+		t.Errorf("expected per-location fallback when EnclosingFunction empty, got %d findings", len(findings))
+	}
+}
+
+func TestConvertRollupByFunctionGroupsByEnclosingFunction(t *testing.T) {
+	m := stubMatcher("fn", "")
+	m.RollupKey = RollupByFunction
+	cands := []Candidate{
+		{Slug: "fn", File: "a.go", LineNumber: 1, EnclosingFunction: "Run"},
+		{Slug: "fn", File: "a.go", LineNumber: 5, EnclosingFunction: "Run"},
+		{Slug: "fn", File: "a.go", LineNumber: 9, EnclosingFunction: "Other"},
+	}
+	findings := Convert(cands, []Matcher{m}, "svc")
+	if len(findings) != 2 {
+		t.Fatalf("expected 2 findings (Run, Other), got %d", len(findings))
+	}
+}
+
+func TestConvertRollupFingerprintStableAcrossFileOrder(t *testing.T) {
+	// A rolled-up Finding's fingerprint should depend on the rollup key,
+	// not on which Candidate happens to be at the head of the group.
+	// Otherwise adding a new k8s overlay would shift the Finding's id.
+	m := stubMatcher("k8s", "")
+	m.RollupKey = RollupByK8sWorkload
+	a := Candidate{Slug: "k8s", File: "dev.yml", LineNumber: 2, K8sKind: "Deployment", K8sName: "backend"}
+	b := Candidate{Slug: "k8s", File: "prod.yml", LineNumber: 2, K8sKind: "Deployment", K8sName: "backend"}
+
+	findingsAB := Convert([]Candidate{a, b}, []Matcher{m}, "svc")
+	findingsBA := Convert([]Candidate{b, a}, []Matcher{m}, "svc")
+	if len(findingsAB) != 1 || len(findingsBA) != 1 {
+		t.Fatalf("expected 1 finding each, got %d and %d", len(findingsAB), len(findingsBA))
+	}
+	if findingsAB[0].Fingerprint != findingsBA[0].Fingerprint {
+		t.Errorf("rolled-up fingerprint must be order-independent; got %q vs %q",
+			findingsAB[0].Fingerprint, findingsBA[0].Fingerprint)
+	}
+}
+
+func TestConvertWithoutRollupKeyPreservesLegacyBehavior(t *testing.T) {
+	// Matchers that don't set RollupKey must keep emitting one Finding
+	// per location (the pre-W2 behavior). This guards against accidental
+	// changes that would silently roll up unrelated matchers.
+	m := stubMatcher("legacy", "")
+	cands := []Candidate{
+		{Slug: "legacy", File: "a.go", LineNumber: 1},
+		{Slug: "legacy", File: "a.go", LineNumber: 5},
+		{Slug: "legacy", File: "b.go", LineNumber: 2},
+	}
+	findings := Convert(cands, []Matcher{m}, "svc")
+	if len(findings) != 3 {
+		t.Errorf("expected 3 per-location findings with no RollupKey, got %d", len(findings))
+	}
+}

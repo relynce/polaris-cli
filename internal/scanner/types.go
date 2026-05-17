@@ -133,6 +133,20 @@ type Matcher struct {
 	// The field is not serialized to JSON; AST matchers built from
 	// org-generated JSON cannot supply a function pointer.
 	Check func(absPath, relPath string, src []byte) []Candidate `json:"-"`
+
+	// RollupKey, when non-nil, groups Candidates emitted by this matcher
+	// into one ScanFinding per (Slug, RollupKey(c)) pair. Each grouped
+	// Candidate becomes one Evidence entry. The default (nil) preserves
+	// today's behavior of one Finding per (Slug, File, LineNumber).
+	//
+	// Matchers should use a helper from rollup.go (RollupByProject,
+	// RollupByFile, RollupByPackage, RollupByFunction, RollupByK8sWorkload,
+	// RollupByImageRef, RollupByColumn) rather than building keys ad hoc,
+	// so behavior stays uniform across matchers.
+	//
+	// Not serialized; org-generated matchers (Phase 2) inherit a default
+	// based on Impl.
+	RollupKey func(c Candidate) string `json:"-"`
 }
 
 // Candidate is what the engine emits per match: enough information for
@@ -143,6 +157,28 @@ type Candidate struct {
 	LineNumber  int
 	Snippet     string
 	Description string
+
+	// Optional metadata used by rollup helpers in rollup.go. Matchers
+	// populate the field that matches their rollup strategy:
+	//
+	//   - EnclosingFunction: AST matchers that group per function
+	//     (e.g., panic-in-goroutine collapsing multiple goroutine launches
+	//     in one function into one Finding).
+	//   - K8sKind, K8sName: k8s YAML matchers that collapse the same
+	//     workload across overlay files into one Finding.
+	//   - ImageRef: k8s/dockerfile matchers that collapse mutable-tag
+	//     uses of the same image across files.
+	//   - SQLTable, SQLColumn: migration matchers that collapse a column's
+	//     historical migration trail into one Finding scoped to the
+	//     latest-state column.
+	//
+	// Empty values are safe — rollup helpers fall back to file:line.
+	EnclosingFunction string
+	K8sKind           string
+	K8sName           string
+	ImageRef          string
+	SQLTable          string
+	SQLColumn         string
 }
 
 // ScanOptions configures one engine invocation.

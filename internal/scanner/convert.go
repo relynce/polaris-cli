@@ -59,11 +59,11 @@ type ScanEvidence struct {
 	Description string `json:"description,omitempty"`
 }
 
-// Convert turns Candidates into ScanFindings, one finding per Candidate.
-// Service is the project name (used to compute fingerprints and to qualify
-// linked_services). matchers is the registry the engine ran with — used to
-// look up category, severity, controls, and provenance for each candidate
-// slug.
+// Convert turns Candidates into ScanFindings. Candidates that share a
+// (Slug, Matcher.RollupKey(c)) pair collapse into one Finding with each
+// occurrence in Evidence[]. Matchers that don't declare a RollupKey
+// preserve the legacy behavior of one Finding per (Slug, File, LineNumber).
+// Service is the project name (used in fingerprints and linked_services).
 func Convert(cands []Candidate, matchers []Matcher, service string) []ScanFinding {
 	if len(cands) == 0 {
 		return nil
@@ -73,49 +73,46 @@ func Convert(cands []Candidate, matchers []Matcher, service string) []ScanFindin
 		bySlug[m.Slug] = m
 	}
 
-	// Group candidates by (slug, file, line) to emit one finding per
-	// distinct location. Multiple matches at the same location dedup.
-	type key struct {
-		slug, file string
-		line       int
+	// Group candidates by (slug, rollup-key). Preserve first-seen order
+	// so output is stable across runs given stable input.
+	type groupState struct {
+		matcher   Matcher
+		cands     []Candidate
+		rollupKey string
+		// Dedup within a group by (file, line) so a matcher that emits
+		// the same Candidate twice doesn't produce two Evidence entries.
+		seen map[string]bool
 	}
-	seen := make(map[key]bool)
+	groups := make(map[string]*groupState)
+	order := make([]string, 0)
 
-	out := make([]ScanFinding, 0, len(cands))
 	for _, c := range cands {
-		k := key{c.Slug, c.File, c.LineNumber}
-		if seen[k] {
-			continue
-		}
-		seen[k] = true
-
 		m, ok := bySlug[c.Slug]
 		if !ok {
 			continue
 		}
-		likelihood, impact := likelihoodAndImpactForSeverity(m.Severity)
-		f := ScanFinding{
-			Title:        titleFor(m, c),
-			Category:     m.Category,
-			Likelihood:   likelihood,
-			Impact:       impact,
-			ControlCodes: append([]string(nil), m.ControlCodes...),
-			Narrative:    narrativeFor(m, c),
-			Evidence: []ScanEvidence{{
-				Type:        "code",
-				Path:        c.File,
-				LineNumber:  c.LineNumber,
-				Description: c.Description,
-			}},
-			Fingerprint: LocationFingerprint(c.File, c.LineNumber, service),
-			Provenance:  provenanceForFinding(m),
-			Slug:        m.Slug,
-			Confidence:  m.Confidence,
+		rk := rollupKeyFor(m, c)
+		gk := c.Slug + "|" + rk
+		g, exists := groups[gk]
+		if !exists {
+			g = &groupState{matcher: m, rollupKey: rk, seen: make(map[string]bool)}
+			groups[gk] = g
+			order = append(order, gk)
 		}
-		out = append(out, f)
+		locKey := fmt.Sprintf("%s:%d", c.File, c.LineNumber)
+		if g.seen[locKey] {
+			continue
+		}
+		g.seen[locKey] = true
+		g.cands = append(g.cands, c)
 	}
 
-	// Stable order: file, line, slug.
+	out := make([]ScanFinding, 0, len(groups))
+	for _, gk := range order {
+		out = append(out, buildFinding(groups[gk].matcher, groups[gk].cands, groups[gk].rollupKey, service))
+	}
+
+	// Stable order: file (of first evidence), line, slug.
 	sort.SliceStable(out, func(i, j int) bool {
 		ai := out[i].Evidence[0]
 		bj := out[j].Evidence[0]
@@ -128,6 +125,45 @@ func Convert(cands []Candidate, matchers []Matcher, service string) []ScanFindin
 		return out[i].Title < out[j].Title
 	})
 	return out
+}
+
+// buildFinding assembles one ScanFinding from a group of Candidates that
+// share a rollup key. The head Candidate (first emission) drives the title,
+// narrative, and provenance; every Candidate in the group becomes an
+// Evidence entry. Fingerprint uses the rollup key for rolled-up findings so
+// re-runs are stable even when the head file changes.
+func buildFinding(m Matcher, cands []Candidate, rollupKey, service string) ScanFinding {
+	head := cands[0]
+	evidence := make([]ScanEvidence, 0, len(cands))
+	for _, c := range cands {
+		evidence = append(evidence, ScanEvidence{
+			Type:        "code",
+			Path:        c.File,
+			LineNumber:  c.LineNumber,
+			Description: c.Description,
+		})
+	}
+	likelihood, impact := likelihoodAndImpactForSeverity(m.Severity)
+	fp := LocationFingerprint(head.File, head.LineNumber, service)
+	if m.RollupKey != nil && rollupKey != "" {
+		// For rolled-up findings, fingerprint by (slug, rollup-key) so it
+		// stays stable when the underlying file set shifts (e.g., adding
+		// a new k8s overlay shouldn't change the existing Finding's id).
+		fp = LocationFingerprint(rollupKey, 0, service+"|"+m.Slug)
+	}
+	return ScanFinding{
+		Title:        titleFor(m, head),
+		Category:     m.Category,
+		Likelihood:   likelihood,
+		Impact:       impact,
+		ControlCodes: append([]string(nil), m.ControlCodes...),
+		Narrative:    narrativeFor(m, head),
+		Evidence:     evidence,
+		Fingerprint:  fp,
+		Provenance:   provenanceForFinding(m),
+		Slug:         m.Slug,
+		Confidence:   m.Confidence,
+	}
 }
 
 func titleFor(m Matcher, c Candidate) string {
