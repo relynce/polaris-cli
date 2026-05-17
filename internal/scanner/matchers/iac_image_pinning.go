@@ -128,7 +128,7 @@ func k8sMutableImageTag() scanner.Matcher {
 		// Rollup per image ref so the same image referenced in multiple
 		// manifests (e.g., base and overlay both list backend:v3.2.1)
 		// collapses into one Finding.
-		RollupKey: scanner.RollupByImageRef,
+		RollupKey: scanner.RollupByProject,
 	}
 }
 

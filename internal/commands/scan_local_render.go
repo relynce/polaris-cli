@@ -174,8 +174,15 @@ func groupFindings(findings []scanner.ScanFinding) []findingGroup {
 			byKey[k] = g
 			order = append(order, k)
 		}
-		if len(f.Evidence) > 0 && f.Evidence[0].Path != "" {
-			loc := fmt.Sprintf("%s:%d", f.Evidence[0].Path, f.Evidence[0].LineNumber)
+		// W2 rollup model: one Finding can carry N evidence items
+		// (every occurrence of one class of risk). Expand all of them
+		// so the report's "Locations" column reflects scope of impact,
+		// not just the head occurrence.
+		for _, ev := range f.Evidence {
+			if ev.Path == "" {
+				continue
+			}
+			loc := fmt.Sprintf("%s:%d", ev.Path, ev.LineNumber)
 			// po-i7mz2: tag pre-existing findings inline so readers can
 			// see which entries are advisory vs which will gate CI.
 			if f.Status == scanner.StatusPreExisting {

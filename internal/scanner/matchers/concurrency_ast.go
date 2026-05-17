@@ -98,7 +98,7 @@ func panicInGoroutine() scanner.Matcher {
 		// Rollup per enclosing function: one handler that spawns six
 		// goroutines for parallel data loads is one decision point
 		// ("wrap them with safego.Go"), not six findings.
-		RollupKey: scanner.RollupByFunction,
+		RollupKey: scanner.RollupByProject,
 	}
 }
 
@@ -339,6 +339,7 @@ func unboundedConcurrency() scanner.Matcher {
 			SourcePatternTypes: []string{"failure_mode"},
 			RelatedControls:    []string{"RC-022"},
 		},
+		RollupKey: scanner.RollupByProject,
 	}
 }
 

@@ -166,6 +166,7 @@ func globalStateMutationASTGo() scanner.Matcher {
 			SourcePatternTypes: []string{"failure_mode"},
 			RelatedControls:    []string{"RC-022"},
 		},
+		RollupKey: scanner.RollupByProject,
 	}
 }
 

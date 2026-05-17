@@ -198,7 +198,7 @@ func k8sMissingFieldMatcher(spec missingFieldSpec) scanner.Matcher {
 		// Rollup per (Kind, Name) so overlay-file dupes collapse. Falls
 		// back to per-location when metadata.name is missing (e.g.,
 		// templated manifests).
-		RollupKey: scanner.RollupByK8sWorkload,
+		RollupKey: scanner.RollupByProject,
 	}
 }
 

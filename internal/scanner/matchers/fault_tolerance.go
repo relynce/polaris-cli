@@ -59,6 +59,7 @@ func missingTimeoutGo() scanner.Matcher {
 			SourcePatternTypes: []string{"causal_chain", "failure_mode"},
 			RelatedControls:    []string{"RC-018"},
 		},
+		RollupKey: scanner.RollupByProject,
 	}
 }
 
@@ -96,6 +97,7 @@ func swallowedErrorGo() scanner.Matcher {
 			SourcePatternTypes: []string{"failure_mode"},
 			RelatedControls:    []string{"RC-021"},
 		},
+		RollupKey: scanner.RollupByProject,
 	}
 }
 
@@ -132,6 +134,7 @@ func missingRetryGo() scanner.Matcher {
 			SourcePatternTypes: []string{"failure_mode"},
 			RelatedControls:    []string{"RC-019"},
 		},
+		RollupKey: scanner.RollupByProject,
 	}
 }
 
@@ -166,6 +169,7 @@ func unhandledPromiseJS() scanner.Matcher {
 			SourcePatternTypes: []string{"failure_mode"},
 			RelatedControls:    []string{"RC-021"},
 		},
+		RollupKey: scanner.RollupByProject,
 	}
 }
 
@@ -199,6 +203,7 @@ func emptyCatchMulti() scanner.Matcher {
 			SourcePatternTypes: []string{"failure_mode"},
 			RelatedControls:    []string{"RC-021"},
 		},
+		RollupKey: scanner.RollupByProject,
 	}
 }
 

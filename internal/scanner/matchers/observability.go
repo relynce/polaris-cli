@@ -61,6 +61,6 @@ func noStructuredLogging() scanner.Matcher {
 		// Rollup per package: 200+ findings per scan is unactionable.
 		// One Finding per Go package directs the developer at one
 		// migration target ("this package still prints; switch to slog").
-		RollupKey: scanner.RollupByPackage,
+		RollupKey: scanner.RollupByProject,
 	}
 }

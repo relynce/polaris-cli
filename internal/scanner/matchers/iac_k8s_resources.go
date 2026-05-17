@@ -323,6 +323,6 @@ func resourceLimitMatcher(spec resourceLimitSpec) scanner.Matcher {
 		// Rollup per (Kind, Name): the same Deployment patched across
 		// dev/staging/prod overlays is one decision, not N. Container-
 		// level granularity is preserved in Evidence.
-		RollupKey: scanner.RollupByK8sWorkload,
+		RollupKey: scanner.RollupByProject,
 	}
 }

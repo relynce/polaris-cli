@@ -50,6 +50,6 @@ func noErrorWrapping() scanner.Matcher {
 		// 100+ findings per package is noise. One Finding per Go package
 		// with each occurrence listed gives the developer one entry per
 		// team to address.
-		RollupKey: scanner.RollupByPackage,
+		RollupKey: scanner.RollupByProject,
 	}
 }

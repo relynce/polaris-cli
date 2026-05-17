@@ -227,7 +227,7 @@ func integerColumnNotBigint() scanner.Matcher {
 		// and later re-declared by another migration is one decision
 		// point, not N. Falls back to per-location when SQLTable is
 		// empty (loose `id INTEGER` outside a CREATE TABLE context).
-		RollupKey: scanner.RollupByColumn,
+		RollupKey: scanner.RollupByProject,
 	}
 }
 

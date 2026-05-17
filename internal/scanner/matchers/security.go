@@ -59,6 +59,7 @@ func hardcodedConnectionString() scanner.Matcher {
 			SourcePatternTypes: []string{"failure_mode"},
 			RelatedControls:    []string{"RC-039"},
 		},
+		RollupKey: scanner.RollupByProject,
 	}
 }
 
@@ -142,6 +143,6 @@ func rawSQLNoParams() scanner.Matcher {
 		// fragments produces one Finding for the file, not N. Cross-
 		// repository duplicates of the same anti-pattern remain separate
 		// findings (each file is its own decision point).
-		RollupKey: scanner.RollupByFile,
+		RollupKey: scanner.RollupByProject,
 	}
 }
