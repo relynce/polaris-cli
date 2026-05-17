@@ -35,6 +35,7 @@ type localScanArgs struct {
 	noDedupe             bool // po-jlsd6: suppress grouped output, emit flat per-instance only
 	mode                 string // po-f96kz: "" | enforce | eval — eval always exits 0
 	profile              string // po-3vsvk: matcher profile (fast | full | <custom>)
+	timeout              string // po-p3k56: --timeout flag value (Go duration), empty falls through to RVL_SCAN_TIMEOUT / defaultScanTimeout
 }
 
 // runLocalScan is the --local code path. Builds a matcher list, runs
@@ -267,7 +268,7 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	}
 	var submitResp *ScanResponse
 	if opts.submit {
-		submitResp = submitLocalScan(cliVersion, service, projectCfg, asInterfaces, excludedMatcherSlugs, matchedWaivers)
+		submitResp = submitLocalScan(cliVersion, service, projectCfg, asInterfaces, excludedMatcherSlugs, matchedWaivers, opts.timeout)
 	}
 	if strings.EqualFold(opts.format, "markdown") {
 		// Explicit markdown output: emit raw without glamour rendering,
@@ -586,7 +587,7 @@ func writeLocalJSON(service string, findings []interface{}, groups []scanner.Fin
 	}
 }
 
-func submitLocalScan(cliVersion, service string, cfg *project.ProjectConfig, findings []interface{}, excludedMatchers []string, appliedWaivers []AppliedWaiver) *ScanResponse {
+func submitLocalScan(cliVersion, service string, cfg *project.ProjectConfig, findings []interface{}, excludedMatchers []string, appliedWaivers []AppliedWaiver, timeoutFlag string) *ScanResponse {
 	apiCfg := api.LoadAndResolveConfig()
 	wireWaivers := make([]AppliedWaiverWire, 0, len(appliedWaivers))
 	for _, w := range appliedWaivers {
@@ -617,7 +618,7 @@ func submitLocalScan(cliVersion, service string, cfg *project.ProjectConfig, fin
 		}
 	}
 
-	resp, err := submitScan(apiCfg, &scanReq)
+	resp, err := submitScan(apiCfg, &scanReq, resolveScanTimeout(timeoutFlag))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error submitting scan: %v\n", err)
 		os.Exit(2)

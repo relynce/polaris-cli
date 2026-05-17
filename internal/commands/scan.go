@@ -3,6 +3,8 @@ package commands
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -55,6 +57,13 @@ type ScanRequest struct {
 	// (most-specific wins) — see docs/designs/local-scanner-developer-workflow.md
 	// in the polaris repo.
 	ServiceTolerance *ServiceToleranceConfig `json:"service_tolerance,omitempty"`
+
+	// po-zphjg: idempotency key for safe retry after a client-side timeout.
+	// submitScan derives a deterministic value from a hash of the request
+	// body when this is empty, so a rerun of the same command (same
+	// scan-parts, same metadata) reuses the server's cached response
+	// instead of re-running every side effect.
+	IdempotencyKey string `json:"idempotency_key,omitempty"`
 }
 
 // ServiceToleranceConfig mirrors polaris-side ServiceToleranceConfig
@@ -243,6 +252,7 @@ func CmdScan(args []string, version string) {
 	var scanModeFlag string // po-f96kz
 	var profileFlag string  // po-3vsvk
 	var cleanupOnSuccess bool // po-gg5dg: remove --scan-dir after a 2xx submit
+	var timeoutFlag string    // po-p3k56: optional override for scan submission timeout
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -349,6 +359,13 @@ func CmdScan(args []string, version string) {
 			profileFlag = args[i]
 		case "--cleanup-on-success":
 			cleanupOnSuccess = true
+		case "--timeout":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --timeout requires a value (e.g. 90s, 2m)")
+				os.Exit(1)
+			}
+			i++
+			timeoutFlag = args[i]
 		default:
 			if strings.HasPrefix(args[i], "--target=") {
 				targetDir = strings.TrimPrefix(args[i], "--target=")
@@ -364,6 +381,8 @@ func CmdScan(args []string, version string) {
 				scanModeFlag = strings.TrimPrefix(args[i], "--mode=")
 			} else if strings.HasPrefix(args[i], "--profile=") {
 				profileFlag = strings.TrimPrefix(args[i], "--profile=")
+			} else if strings.HasPrefix(args[i], "--timeout=") {
+				timeoutFlag = strings.TrimPrefix(args[i], "--timeout=")
 			} else if strings.HasPrefix(args[i], "-") {
 				// po-c2iff: unrecognized flag. Silently ignoring used to
 				// hide typos and renamed flags (e.g. someone trying the
@@ -399,6 +418,7 @@ func CmdScan(args []string, version string) {
 			noDedupe:             noDedupe,
 			mode:                 scanModeFlag,
 			profile:              profileFlag,
+			timeout:              timeoutFlag,
 		})
 		return
 	}
@@ -572,7 +592,7 @@ func CmdScan(args []string, version string) {
 			missing, len(scanReq.Findings), scanReq.Service)
 	}
 
-	response, err := submitScan(cfg, &scanReq)
+	response, err := submitScan(cfg, &scanReq, resolveScanTimeout(timeoutFlag))
 	if err != nil {
 		// po-gg5dg: on submit failure, remind the user the scan-parts
 		// directory is intact and can be re-submitted as-is. Helps avoid
@@ -728,6 +748,13 @@ func printCIOutput(response *ScanResponse) {
 	}
 }
 
+// defaultScanTimeout caps the HTTP submission of a scan. 60s gives the
+// polaris server room to finish even when post-processing has not yet
+// been fully detached (po-j18em landed; long-tail orgs may still push
+// the response toward the ceiling). Override via --timeout or
+// RVL_SCAN_TIMEOUT; see resolveScanTimeout.
+const defaultScanTimeout = 60 * time.Second
+
 // submitScan sends the scan request to the API and returns the response.
 //
 // po-alt4a: honors Retry-After on a 429 by retrying once after the
@@ -740,9 +767,28 @@ func printCIOutput(response *ScanResponse) {
 //
 // po-m0d82: server JSON Error responses (code+message, post po-cw82g)
 // are parsed and surfaced verbatim so the user knows what failed.
-func submitScan(cfg *config.Config, scanReq *ScanRequest) (*ScanResponse, error) {
+//
+// po-p3k56: timeout is configurable via --timeout / RVL_SCAN_TIMEOUT
+// (default 60s). The CLI used to hardcode 30s, which collided with the
+// server's pre-async ~30s scan-handler latency and surfaced as
+// confusing "context deadline exceeded" failures even when the server
+// had already created the risks.
+//
+// po-zphjg: a deterministic idempotency_key derived from the request
+// body is set when the caller did not supply one. The server caches the
+// response under this key so the same command rerun after a client
+// timeout reuses the cached body without redoing every side effect.
+func submitScan(cfg *config.Config, scanReq *ScanRequest, timeout time.Duration) (*ScanResponse, error) {
 	const maxRetries = 1
 	const maxBackoff = 120 * time.Second
+
+	if timeout <= 0 {
+		timeout = defaultScanTimeout
+	}
+
+	if scanReq.IdempotencyKey == "" {
+		scanReq.IdempotencyKey = deriveIdempotencyKey(scanReq)
+	}
 
 	body, err := json.Marshal(scanReq)
 	if err != nil {
@@ -751,7 +797,7 @@ func submitScan(cfg *config.Config, scanReq *ScanRequest) (*ScanResponse, error)
 
 	var scanResp ScanResponse
 	for attempt := 0; ; attempt++ {
-		client := &http.Client{Timeout: 30 * time.Second}
+		client := &http.Client{Timeout: timeout}
 		req, err := http.NewRequest("POST", cfg.APIURL+"/api/v1/risks/scan", bytes.NewReader(body))
 		if err != nil {
 			return nil, fmt.Errorf("create request: %w", err)
@@ -792,6 +838,49 @@ func submitScan(cfg *config.Config, scanReq *ScanRequest) (*ScanResponse, error)
 		}
 		return &scanResp, nil
 	}
+}
+
+// deriveIdempotencyKey returns a stable 32-hex-char key derived from the
+// request body with IdempotencyKey cleared. Two CmdScan invocations
+// against the same service with the same findings/metadata produce the
+// same key, so the server-side cache (lookupScanIdempotency) recognizes
+// the second submission as a retry. Inputs that legitimately change
+// between runs (different findings, different git_commit) produce a
+// different key and a fresh scan, which is the right outcome.
+func deriveIdempotencyKey(scanReq *ScanRequest) string {
+	clone := *scanReq
+	clone.IdempotencyKey = ""
+	canonical, err := json.Marshal(&clone)
+	if err != nil {
+		// Marshal failure here is essentially impossible (all fields are
+		// JSON-encodable), but if it happens we'd rather skip dedup than
+		// crash the submit path. The empty key disables the cache check
+		// server-side and the request still completes normally.
+		return ""
+	}
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:16])
+}
+
+// resolveScanTimeout picks the effective HTTP timeout for the scan
+// submission. Precedence: explicit --timeout flag > RVL_SCAN_TIMEOUT env
+// > defaultScanTimeout. Invalid env values silently fall through to the
+// default rather than failing the scan; a malformed env should not be a
+// hard error in the middle of a CI run.
+func resolveScanTimeout(flagValue string) time.Duration {
+	if flagValue != "" {
+		if d, err := time.ParseDuration(flagValue); err == nil && d > 0 {
+			return d
+		}
+		fmt.Fprintf(os.Stderr, "Warning: invalid --timeout %q; using default %s\n", flagValue, defaultScanTimeout)
+	}
+	if env := os.Getenv("RVL_SCAN_TIMEOUT"); env != "" {
+		if d, err := time.ParseDuration(env); err == nil && d > 0 {
+			return d
+		}
+		fmt.Fprintf(os.Stderr, "Warning: invalid RVL_SCAN_TIMEOUT %q; using default %s\n", env, defaultScanTimeout)
+	}
+	return defaultScanTimeout
 }
 
 // countFindingsWithoutComponent returns how many findings lack both a
