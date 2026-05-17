@@ -19,10 +19,21 @@ import (
 	"github.com/revelara-ai/rvl-cli/internal/project"
 )
 
+// ScanType is the enumerated scan_type value. The Polaris handler validates
+// the OpenAPI enum at the boundary (po-f5tmk); we keep typed constants here
+// so CLI internals can refer to them without stringly-typing.
+type ScanType = string
+
+const (
+	ScanTypeFull        ScanType = "full"
+	ScanTypeIncremental ScanType = "incremental"
+	ScanTypeTargeted    ScanType = "targeted"
+)
+
 // ScanRequest represents the payload sent to the scan endpoint
 type ScanRequest struct {
 	Service      string        `json:"service"`
-	ScanType     string        `json:"scan_type"`
+	ScanType     ScanType      `json:"scan_type"`
 	ScanMode     string        `json:"scan_mode,omitempty"`
 	Findings     []interface{} `json:"findings"`
 	Metadata     ScanMetadata  `json:"metadata,omitempty"`
@@ -496,7 +507,7 @@ func CmdScan(args []string, version string) {
 
 	scanReq.Service = service
 	if scanReq.ScanType == "" {
-		scanReq.ScanType = "full"
+		scanReq.ScanType = ScanTypeFull
 	}
 	scanReq.Metadata.ScannerID = "rely-cli-" + version
 
