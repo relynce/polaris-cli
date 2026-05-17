@@ -27,13 +27,20 @@ func hardcodedConnectionString() scanner.Matcher {
 	// credentials, not the URL shape.
 	primary := regexp.MustCompile(`["'](?:postgres(?:ql)?|mysql|mongodb|redis|amqp|amqps|kafka)://[^@\s"']*@[^"']+["']`)
 	return scanner.Matcher{
-		Slug:           "hardcoded-connection-string",
-		Description:    "Hardcoded DB/Redis/AMQP connection string with credentials",
-		Category:       "service_fragility",
-		ControlCodes:   []string{"RC-039"},
-		Languages:      []string{"Go", "Java", "Python", "JavaScript", "TypeScript"},
-		FilePatterns:   []string{"**/*.go", "**/*.java", "**/*.py", "**/*.js", "**/*.ts", "**/*.jsx", "**/*.tsx"},
-		AppliesToTests: true, // PRD: leaks in fixtures matter too
+		Slug:         "hardcoded-connection-string",
+		Description:  "Hardcoded DB/Redis/AMQP connection string with credentials",
+		Category:     "service_fragility",
+		ControlCodes: []string{"RC-039"},
+		Languages:    []string{"Go", "Java", "Python", "JavaScript", "TypeScript"},
+		FilePatterns: []string{"**/*.go", "**/*.java", "**/*.py", "**/*.js", "**/*.ts", "**/*.jsx", "**/*.tsx"},
+		// W3 (po-cgmz6): the prior `AppliesToTests: true` setting fired on
+		// every test fixture using well-known local-dev credentials
+		// (postgres:postgres@localhost, incident:incident@localhost),
+		// which are correct by construction and not actionable. The new
+		// default skips test files; real prod-code leaks remain caught.
+		// Override per-repo with scanner.include_tests=true if you want
+		// the strict behavior.
+		AppliesToTests: false,
 		Confidence:     "high",
 		Severity:       "high",
 		Impl:           scanner.ImplRegex,

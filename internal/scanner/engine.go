@@ -2,12 +2,14 @@ package scanner
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -25,12 +27,26 @@ var defaultExcludeDirs = map[string]bool{
 	".git":         true,
 	"__pycache__":  true,
 	".tox":         true,
+	// W3: SvelteKit / Next.js / build-time artifacts. The output trees
+	// contain minified bundles that trip the SQL-concat regex and
+	// "no structured logging" matcher with garbage findings.
+	".svelte-kit": true,
+	".next":       true,
+	".nuxt":       true,
+	".output":     true,
+	// W3: Go convention for test fixtures and fake-repo trees. Matchers
+	// that fire on testdata produce intentional-fake-code findings
+	// that the developer can never act on.
+	"testdata": true,
+	"fixtures": true,
 }
 
 // generatedFileSuffixes catches typical generated-code patterns. Matchers
 // can opt back in via FilePatterns if they want to match these.
 var generatedFileSuffixes = []string{
 	".pb.go", "_generated.go", ".gen.go",
+	// W3: minified / bundled JS that's never source-of-truth.
+	".min.js", ".bundle.js", ".min.css",
 }
 
 // LanguageDetector returns the proper-case names of languages present
@@ -108,8 +124,15 @@ func Scan(matchers []Matcher, opts ScanOptions) ([]Candidate, ScanStats, error) 
 			for w := range jobs {
 				localCands, err := scanFile(w.relPath, w.absPath, matchers, opts.IncludeTests)
 				if err != nil {
-					// Soft-fail per file: warn but continue.
-					fmt.Fprintf(os.Stderr, "scanner: skip %s: %v\n", w.relPath, err)
+					// Soft-fail per file: warn but continue. Directories
+					// that slipped through the walker (e.g., when a path
+					// was queued before a SkipDir took effect) come back
+					// here as EISDIR; suppress those — they're not
+					// actionable for the user and reading them as warnings
+					// confuses users running `rvl scan --local`.
+					if !errors.Is(err, syscall.EISDIR) {
+						fmt.Fprintf(os.Stderr, "scanner: skip %s: %v\n", w.relPath, err)
+					}
 					continue
 				}
 				if len(localCands) == 0 {
@@ -412,12 +435,12 @@ func matcherAppliesToFile(m Matcher, relPath string, isTest, includeTests bool) 
 	if isTest && !m.AppliesToTests && !includeTests {
 		return false
 	}
-	// Excluded patterns first.
+	// Excluded patterns first. Use globMatch so **/ prefixes work the
+	// same way they do in FilePatterns; raw filepath.Match would have
+	// silently accepted "**/scripts/cleanup_*.sql" but never matched
+	// anything (po-cgmz6).
 	for _, ex := range m.ExcludePatterns {
-		if ok, _ := filepath.Match(ex, relPath); ok {
-			return false
-		}
-		if ok, _ := filepath.Match(ex, filepath.Base(relPath)); ok {
+		if globMatch(ex, relPath) {
 			return false
 		}
 	}

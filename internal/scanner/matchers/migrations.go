@@ -3,6 +3,7 @@ package matchers
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/revelara-ai/rvl-cli/internal/scanner"
@@ -113,14 +114,31 @@ func integerColumnNotBigint() scanner.Matcher {
 	}
 	growthSuffixes := []string{"_id", "_count", "_total", "_seq"}
 
+	// createTableRE captures the table name of the most recent CREATE TABLE
+	// statement so we can populate SQLTable on emitted Candidates.
+	// Conservative: matches `CREATE TABLE [IF NOT EXISTS] [schema.]name`.
+	createTableRE := regexp.MustCompile(`(?i)^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:[a-zA-Z_][a-zA-Z0-9_]*\.)?([a-zA-Z_][a-zA-Z0-9_]*)`)
+	// alterAddColumnRE captures the table name from `ALTER TABLE x ADD COLUMN ...`.
+	alterAddColumnRE := regexp.MustCompile(`(?i)^\s*ALTER\s+TABLE\s+(?:[a-zA-Z_][a-zA-Z0-9_]*\.)?([a-zA-Z_][a-zA-Z0-9_]*)\s+ADD\s+COLUMN\b`)
+
 	check := func(_ string, relPath string, src []byte) []scanner.Candidate {
 		text := string(src)
 		var out []scanner.Candidate
 		seen := map[string]bool{}
+		currentTable := ""
 
 		for lineNum, line := range strings.Split(text, "\n") {
 			line = strings.TrimSpace(line)
 			lower := strings.ToLower(line)
+
+			// Track the enclosing table so per-column rollup works
+			// correctly: 'id INTEGER' in two different tables must
+			// produce two findings, not one.
+			if m := createTableRE.FindStringSubmatch(line); m != nil {
+				currentTable = strings.ToLower(m[1])
+			} else if m := alterAddColumnRE.FindStringSubmatch(line); m != nil {
+				currentTable = strings.ToLower(m[1])
+			}
 
 			// Skip non-DDL lines fast.
 			if !strings.Contains(lower, " int") &&
@@ -163,6 +181,8 @@ func integerColumnNotBigint() scanner.Matcher {
 				LineNumber:  lineNum + 1,
 				Snippet:     "column '" + colName + "' is " + colType + " — should be BIGINT",
 				Description: "growth-unbounded column declared with 32-bit INTEGER (max ~2.1B); use BIGINT to avoid overflow",
+				SQLTable:    currentTable,
+				SQLColumn:   colName,
 			})
 		}
 		return out
@@ -178,6 +198,18 @@ func integerColumnNotBigint() scanner.Matcher {
 			"**/migrations/*",
 			"**/db/migrations/*",
 		},
+		// W3: demo/seed/reset/cleanup scripts are dev-only fixtures; they
+		// don't represent production schema decisions and produce
+		// unactionable findings. Excluded by glob rather than directory
+		// so legitimate scripts/ files (e.g., production data import
+		// helpers) are still scanned.
+		ExcludePatterns: []string{
+			"**/scripts/*demo*.sql",
+			"**/scripts/*seed*.sql",
+			"**/scripts/reset_*.sql",
+			"**/scripts/cleanup_*.sql",
+			"**/scripts/create-stpa-*.sql",
+		},
 		Confidence: "high",
 		Severity:   "high",
 		Impl:       scanner.ImplHeuristic,
@@ -191,6 +223,11 @@ func integerColumnNotBigint() scanner.Matcher {
 			SourcePatternTypes: []string{"failure_mode"},
 			RelatedControls:    []string{"RC-041"},
 		},
+		// Rollup per (table, column): a column declared in 000_initial
+		// and later re-declared by another migration is one decision
+		// point, not N. Falls back to per-location when SQLTable is
+		// empty (loose `id INTEGER` outside a CREATE TABLE context).
+		RollupKey: scanner.RollupByColumn,
 	}
 }
 

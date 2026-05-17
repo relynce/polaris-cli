@@ -30,37 +30,48 @@ func panicInGoroutine() scanner.Matcher {
 			return nil // unparseable; the regex matchers may still cover it
 		}
 		var out []scanner.Candidate
-		ast.Inspect(f, func(n ast.Node) bool {
-			gs, ok := n.(*ast.GoStmt)
-			if !ok {
-				return true
+		// Walk top-level FuncDecls so we know each goroutine's enclosing
+		// function; Candidate.EnclosingFunction drives RollupByFunction
+		// so multiple unprotected goroutines in one handler collapse
+		// into a single Finding.
+		for _, decl := range f.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Body == nil {
+				continue
 			}
-			lit, ok := gs.Call.Fun.(*ast.FuncLit)
-			if !ok {
-				// `go someFunc()` — can't inspect the body, conservatively
-				// skip rather than false-positive on every call site.
+			enclosing := fd.Name.Name
+			ast.Inspect(fd.Body, func(n ast.Node) bool {
+				gs, ok := n.(*ast.GoStmt)
+				if !ok {
+					return true
+				}
+				lit, ok := gs.Call.Fun.(*ast.FuncLit)
+				if !ok {
+					// `go someFunc()` — can't inspect the body, conservatively
+					// skip rather than false-positive on every call site.
+					return true
+				}
+				if hasDeferRecover(lit.Body) {
+					return true
+				}
+				// Whitelist: server-lifecycle goroutines (the canonical
+				// "go func() { srv.Serve(lis) }()" / shutdown drains) are
+				// known not to panic in practice.
+				if bodyIsServerLifecycleOnly(lit.Body) {
+					return true
+				}
+				pos := fset.Position(gs.Pos())
+				out = append(out, scanner.Candidate{
+					Slug:              "panic-in-goroutine",
+					File:              relPath,
+					LineNumber:        pos.Line,
+					Snippet:           "go func() { ... }() with no defer recover",
+					Description:       "goroutine spawned without defer recover; uncaught panic crashes the process",
+					EnclosingFunction: enclosing,
+				})
 				return true
-			}
-			if hasDeferRecover(lit.Body) {
-				return true
-			}
-			// Whitelist: server-lifecycle goroutines (the canonical
-			// "go func() { srv.Serve(lis) }()" / shutdown drains) are
-			// known not to panic in practice. Suppress to avoid noise
-			// on every gRPC and HTTP server in a real codebase.
-			if bodyIsServerLifecycleOnly(lit.Body) {
-				return true
-			}
-			pos := fset.Position(gs.Pos())
-			out = append(out, scanner.Candidate{
-				Slug:        "panic-in-goroutine",
-				File:        relPath,
-				LineNumber:  pos.Line,
-				Snippet:     "go func() { ... }() with no defer recover",
-				Description: "goroutine spawned without defer recover; uncaught panic crashes the process",
 			})
-			return true
-		})
+		}
 		return out
 	}
 
@@ -84,12 +95,23 @@ func panicInGoroutine() scanner.Matcher {
 			SourcePatternTypes: []string{"failure_mode"},
 			RelatedControls:    []string{"RC-021"},
 		},
+		// Rollup per enclosing function: one handler that spawns six
+		// goroutines for parallel data loads is one decision point
+		// ("wrap them with safego.Go"), not six findings.
+		RollupKey: scanner.RollupByFunction,
 	}
 }
 
 // hasDeferRecover reports whether body contains a `defer` statement
 // whose call expression is recover() (directly or wrapped inside a
-// FuncLit).
+// FuncLit), or a recovery helper such as safego.Recover / safego.RecoverCtx.
+//
+// We can't follow function bodies across packages from a single-file AST
+// walk, so we recognize the conventional naming pattern: any selector
+// expression `X.Recover` or `X.RecoverCtx` deferred inside the goroutine
+// is treated as equivalent to `defer recover()`. This matches Polaris's
+// safego package and any similarly-shaped helper without requiring
+// per-package allow-lists.
 func hasDeferRecover(body *ast.BlockStmt) bool {
 	if body == nil {
 		return false
@@ -100,14 +122,14 @@ func hasDeferRecover(body *ast.BlockStmt) bool {
 		if !ok {
 			return true
 		}
-		if callIsRecover(ds.Call) {
+		if callIsRecover(ds.Call) || callIsRecoveryHelper(ds.Call) {
 			found = true
 			return false
 		}
 		// `defer func() { recover() }()` wraps recover in a literal.
 		if lit, ok := ds.Call.Fun.(*ast.FuncLit); ok && lit.Body != nil {
 			ast.Inspect(lit.Body, func(n ast.Node) bool {
-				if ce, ok := n.(*ast.CallExpr); ok && callIsRecover(ce) {
+				if ce, ok := n.(*ast.CallExpr); ok && (callIsRecover(ce) || callIsRecoveryHelper(ce)) {
 					found = true
 					return false
 				}
@@ -125,6 +147,22 @@ func callIsRecover(call *ast.CallExpr) bool {
 	}
 	id, ok := call.Fun.(*ast.Ident)
 	return ok && id.Name == "recover"
+}
+
+// callIsRecoveryHelper reports whether call is to a package-qualified
+// recovery helper (X.Recover, X.RecoverCtx, X.Recoverf, etc.). Conventional
+// naming is enough to identify these — the matcher would otherwise need
+// per-package allow-lists, which doesn't scale.
+func callIsRecoveryHelper(call *ast.CallExpr) bool {
+	if call == nil {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel == nil {
+		return false
+	}
+	name := sel.Sel.Name
+	return name == "Recover" || name == "RecoverCtx" || name == "Recoverf"
 }
 
 // serverLifecycleSelectors is the set of method names that, when they
