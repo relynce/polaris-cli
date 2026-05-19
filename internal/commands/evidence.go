@@ -22,6 +22,8 @@ type EvidenceItem struct {
 	Status          string  `json:"status"`
 	VerifiedAt      *string `json:"verified_at,omitempty"`
 	CreatedAt       string  `json:"created_at"`
+	UpdatedAt       string  `json:"updated_at"`
+	OrganizationID  string  `json:"organization_id,omitempty"`
 }
 
 type ListEvidenceAPIResponse struct {
@@ -66,19 +68,22 @@ func printEvidenceUsage() {
 	fmt.Println("  --url=<url>            URL or identifier (optional)")
 	fmt.Println("  --description=<text>   Description (optional)")
 	fmt.Println("  --git-hash=<hash>      Git commit hash (auto-detected if not provided)")
+	fmt.Println("  --format=json          Output raw JSON response")
 	fmt.Println()
 	fmt.Println("List options:")
 	fmt.Println("  --control=<code>   Filter by control code")
 	fmt.Println("  --type=<type>      Filter by evidence type")
-	fmt.Println("  --status=<status>  Filter by status (pending, verified, rejected)")
+	fmt.Println("  --status=<status>  Filter by status (not_configured, configured, sample, verified)")
 	fmt.Println("  --limit=<n>        Max records (default: 20)")
+	fmt.Println("  --format=json      Output raw JSON response")
 	fmt.Println()
 	fmt.Println("Verify usage:")
 	fmt.Println("  rvl evidence verify <evidence-id>")
+	fmt.Println("  --format=json      Output raw JSON response")
 }
 
 func cmdEvidenceSubmit(args []string) {
-	var controlCode, evidenceType, name, url, description, gitHash string
+	var controlCode, evidenceType, name, url, description, gitHash, format string
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "--control=") {
 			controlCode = strings.TrimPrefix(arg, "--control=")
@@ -92,6 +97,8 @@ func cmdEvidenceSubmit(args []string) {
 			description = strings.TrimPrefix(arg, "--description=")
 		} else if strings.HasPrefix(arg, "--git-hash=") {
 			gitHash = strings.TrimPrefix(arg, "--git-hash=")
+		} else if strings.HasPrefix(arg, "--format=") {
+			format = strings.TrimPrefix(arg, "--format=")
 		}
 	}
 
@@ -177,6 +184,11 @@ func cmdEvidenceSubmit(args []string) {
 		os.Exit(1)
 	}
 
+	if format == "json" {
+		fmt.Println(string(resp))
+		return
+	}
+
 	fmt.Printf("Evidence submitted successfully.\n")
 	fmt.Printf("  ID:      %s\n", evidence.ID)
 	fmt.Printf("  Control: %s (%s)\n", controlCode, control.Name)
@@ -192,7 +204,7 @@ func cmdEvidenceSubmit(args []string) {
 }
 
 func cmdEvidenceList(args []string) {
-	var controlCode, evidenceType, status string
+	var controlCode, evidenceType, status, format string
 	limit := 20
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "--control=") {
@@ -203,6 +215,21 @@ func cmdEvidenceList(args []string) {
 			status = strings.TrimPrefix(arg, "--status=")
 		} else if strings.HasPrefix(arg, "--limit=") {
 			fmt.Sscanf(strings.TrimPrefix(arg, "--limit="), "%d", &limit)
+		} else if strings.HasPrefix(arg, "--format=") {
+			format = strings.TrimPrefix(arg, "--format=")
+		}
+	}
+
+	if status != "" {
+		validStatuses := map[string]bool{
+			"not_configured": true,
+			"configured":     true,
+			"sample":         true,
+			"verified":       true,
+		}
+		if !validStatuses[status] {
+			fmt.Fprintf(os.Stderr, "Error: invalid --status value %q; must be one of: not_configured, configured, sample, verified\n", status)
+			os.Exit(1)
 		}
 	}
 
@@ -233,6 +260,11 @@ func cmdEvidenceList(args []string) {
 	if err := json.Unmarshal(resp, &listResp); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing response: %v\n", err)
 		os.Exit(1)
+	}
+
+	if format == "json" {
+		fmt.Println(string(resp))
+		return
 	}
 
 	if len(listResp.Evidence) == 0 {
@@ -269,6 +301,13 @@ func cmdEvidenceVerify(args []string) {
 		os.Exit(1)
 	}
 
+	var format string
+	for _, arg := range args[1:] {
+		if strings.HasPrefix(arg, "--format=") {
+			format = strings.TrimPrefix(arg, "--format=")
+		}
+	}
+
 	evidenceID := args[0]
 	cfg := api.LoadAndResolveConfig()
 	apiURL := cfg.APIURL + "/api/v1/evidence/" + evidenceID + "/verify"
@@ -276,6 +315,11 @@ func cmdEvidenceVerify(args []string) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+
+	if format == "json" {
+		fmt.Println(string(resp))
+		return
 	}
 
 	var evidence EvidenceItem
