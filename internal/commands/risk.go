@@ -475,13 +475,40 @@ func parseInt(s string) int {
 // CmdRiskShow shows detailed information about a specific risk
 func CmdRiskShow(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: rvl risk show <risk-code>")
+		fmt.Fprintln(os.Stderr, "Usage: rvl risk show <risk-code> [--format=json]")
+		os.Exit(1)
+	}
+
+	// po-2sn1o: --format=json must short-circuit table rendering so
+	// /rvl:fix's jq pipeline gets a parseable body. Previously this
+	// flag was advertised in usage but silently ignored.
+	var (
+		positional []string
+		format     string
+	)
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--format":
+			if i+1 < len(args) {
+				format = args[i+1]
+				i++
+			}
+		default:
+			if strings.HasPrefix(args[i], "--format=") {
+				format = strings.TrimPrefix(args[i], "--format=")
+			} else {
+				positional = append(positional, args[i])
+			}
+		}
+	}
+	if len(positional) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: rvl risk show <risk-code> [--format=json]")
 		os.Exit(1)
 	}
 
 	cfg := api.LoadAndResolveConfig()
 
-	riskCode := args[0]
+	riskCode := positional[0]
 	riskID, err := FindRiskIDByCode(cfg, riskCode)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error finding risk: %v\n", err)
@@ -493,6 +520,11 @@ func CmdRiskShow(args []string) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error fetching risk: %v\n", err)
 		os.Exit(1)
+	}
+
+	if format == "json" {
+		fmt.Println(string(body))
+		return
 	}
 
 	var risk RiskDetail
@@ -581,13 +613,41 @@ func CmdRiskShow(args []string) {
 // CmdRiskContext shows full context for a risk
 func CmdRiskContext(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: rvl risk context <risk-code>")
+		fmt.Fprintln(os.Stderr, "Usage: rvl risk context <risk-code> [--format=json]")
+		os.Exit(1)
+	}
+
+	// po-ljto0: --format=json must short-circuit table rendering. The
+	// /rvl:fix slash command pipes this command's output through jq to
+	// pull score_factors, controls, and graph_multiplier; until this
+	// fix the flag was parsed only by `risk list` and `risk ready`.
+	var (
+		positional []string
+		format     string
+	)
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--format":
+			if i+1 < len(args) {
+				format = args[i+1]
+				i++
+			}
+		default:
+			if strings.HasPrefix(args[i], "--format=") {
+				format = strings.TrimPrefix(args[i], "--format=")
+			} else {
+				positional = append(positional, args[i])
+			}
+		}
+	}
+	if len(positional) == 0 {
+		fmt.Fprintln(os.Stderr, "Usage: rvl risk context <risk-code> [--format=json]")
 		os.Exit(1)
 	}
 
 	cfg := api.LoadAndResolveConfig()
 
-	riskCode := args[0]
+	riskCode := positional[0]
 	riskID, err := FindRiskIDByCode(cfg, riskCode)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error finding risk: %v\n", err)
@@ -599,6 +659,11 @@ func CmdRiskContext(args []string) {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error fetching risk context: %v\n", err)
 		os.Exit(1)
+	}
+
+	if format == "json" {
+		fmt.Println(string(body))
+		return
 	}
 
 	var ctx RiskContextResponse

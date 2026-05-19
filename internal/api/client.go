@@ -155,14 +155,55 @@ func MakeAPIRequest(cfg *config.Config, method, url string, body []byte) ([]byte
 		return nil, fmt.Errorf("read response body: %w", err)
 	}
 
-	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		return nil, fmt.Errorf("authentication failed - run 'rvl login' to reconfigure")
+	// po-l5nfr: 401 and 403 mean different things to a user. 401 = the
+	// API key didn't authenticate (expired / wrong env), and "rvl login"
+	// is the right fix. 403 = the key authenticated but lacks access to
+	// the requested resource — usually an org mismatch — and "rvl login"
+	// here sends the user into a loop. Surface them separately.
+	if resp.StatusCode == 401 {
+		return nil, fmt.Errorf("authentication failed (401) - run 'rvl login' to reconfigure (API key may be expired or for a different environment)")
+	}
+	if resp.StatusCode == 403 {
+		return nil, fmt.Errorf("forbidden (403) - your API key authenticated but lacks access to this resource; check 'rvl config show' for the active organization or pass --org to override")
 	}
 	if resp.StatusCode >= 400 {
+		// po-ug34g: prefer the spec-shaped {error, message} envelope
+		// over dumping the raw body. Falls back to the body string if
+		// the response isn't JSON or doesn't match the Error schema.
+		if msg := extractAPIErrorMessage(respBody); msg != "" {
+			return nil, fmt.Errorf("server error (%d): %s", resp.StatusCode, msg)
+		}
 		return nil, fmt.Errorf("server error (%d): %s", resp.StatusCode, string(respBody))
 	}
 
 	return respBody, nil
+}
+
+// extractAPIErrorMessage parses the standard JSON Error envelope
+// ({error: code, message: human-readable}) declared by the OpenAPI spec
+// and returns "code: message" when present. Returns "" when the body
+// isn't JSON-shaped or doesn't carry the envelope.
+func extractAPIErrorMessage(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	var env struct {
+		Error   string `json:"error"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(body, &env); err != nil {
+		return ""
+	}
+	switch {
+	case env.Error != "" && env.Message != "":
+		return env.Error + ": " + env.Message
+	case env.Message != "":
+		return env.Message
+	case env.Error != "":
+		return env.Error
+	default:
+		return ""
+	}
 }
 
 // FetchServerPluginVersion queries the API for the latest plugin semver.
