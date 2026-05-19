@@ -253,7 +253,8 @@ Examples:
   rvl risk ready --limit 20 --category change_management
   rvl risk show R-001
   rvl risk context R-001
-  rvl risk resolve R-001`)
+  rvl risk resolve R-001
+  rvl risk resolve R-001 --reason "Fixed in deploy 42" --format=json`)
 }
 
 // CmdRiskList lists all risks in the register
@@ -966,7 +967,7 @@ func CmdRiskStale(args []string) {
 // CmdRiskResolve marks a risk as resolved
 func CmdRiskResolve(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: rvl risk resolve <risk-code> [--reason \"...\"]")
+		fmt.Fprintln(os.Stderr, "Usage: rvl risk resolve <risk-code> [--reason \"...\"] [--format=json]")
 		os.Exit(1)
 	}
 
@@ -974,12 +975,19 @@ func CmdRiskResolve(args []string) {
 
 	riskCode := args[0]
 	reason := "Resolved"
+	format := ""
 	for i := 1; i < len(args); i++ {
-		if args[i] == "--reason" && i+1 < len(args) {
+		switch {
+		case args[i] == "--reason" && i+1 < len(args):
 			reason = args[i+1]
 			i++
-		} else if strings.HasPrefix(args[i], "--reason=") {
+		case strings.HasPrefix(args[i], "--reason="):
 			reason = strings.TrimPrefix(args[i], "--reason=")
+		case args[i] == "--format" && i+1 < len(args):
+			format = args[i+1]
+			i++
+		case strings.HasPrefix(args[i], "--format="):
+			format = strings.TrimPrefix(args[i], "--format=")
 		}
 	}
 
@@ -990,14 +998,28 @@ func CmdRiskResolve(args []string) {
 	}
 
 	endpoint := cfg.APIURL + "/api/v1/risks/" + riskID + "/resolve"
-	body, _ := json.Marshal(map[string]string{"reason": reason})
-	_, err = api.MakeAPIRequest(cfg, "POST", endpoint, body)
+	reqBody, _ := json.Marshal(map[string]string{"reason": reason})
+	resp, err := api.MakeAPIRequest(cfg, "POST", endpoint, reqBody)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error resolving risk: %v\n", err)
 		os.Exit(1)
 	}
 
+	if format == "json" {
+		fmt.Println(string(resp))
+		return
+	}
+
 	fmt.Printf("Risk %s resolved successfully.\n", riskCode)
+	var resolved Risk
+	if err := json.Unmarshal(resp, &resolved); err == nil {
+		if resolved.Status != "" {
+			fmt.Printf("  Status:      %s\n", resolved.Status)
+		}
+		if resolved.ResolvedAt != "" {
+			fmt.Printf("  Resolved At: %s\n", resolved.ResolvedAt)
+		}
+	}
 }
 
 // CmdRiskAccept accepts a risk (intentional decision to retain)
