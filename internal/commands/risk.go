@@ -3,8 +3,10 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
@@ -71,10 +73,17 @@ type MappedControl struct {
 	Evidence              json.RawMessage `json:"evidence,omitempty"`
 }
 
-// ListRisksResponse represents the response from listing risks
+// ListRisksResponse represents the response from listing risks.
+//
+// po-6wrlt: the spec declares page and limit as required; previously the
+// CLI struct silently dropped them. Now they round-trip so the
+// truncation-warning logic in CmdRiskReady (po-eedub) and the table
+// renderer can use the server's effective values.
 type ListRisksResponse struct {
 	Risks []Risk `json:"risks"`
 	Total int    `json:"total"`
+	Page  int    `json:"page"`
+	Limit int    `json:"limit"`
 }
 
 // RiskContextResponse represents the full context for a risk.
@@ -277,18 +286,21 @@ func CmdRiskList(args []string) {
 		}
 	}
 
-	endpoint := cfg.APIURL + "/api/v1/risks"
-	queryParams := []string{"limit=1000"}
+	// po-2msnd: build the query string via url.Values so service names with
+	// '&', '=', or '%' don't smuggle extra params or trigger backend
+	// percent-decoding errors.
+	q := url.Values{}
+	q.Set("limit", "1000")
 	if statusFilter != "" {
-		queryParams = append(queryParams, fmt.Sprintf("status=%s", statusFilter))
+		q.Set("status", statusFilter)
 	}
 	if categoryFilter != "" {
-		queryParams = append(queryParams, fmt.Sprintf("category=%s", categoryFilter))
+		q.Set("category", categoryFilter)
 	}
 	if serviceFilter != "" {
-		queryParams = append(queryParams, fmt.Sprintf("service=%s", serviceFilter))
+		q.Set("service", serviceFilter)
 	}
-	endpoint += "?" + strings.Join(queryParams, "&")
+	endpoint := cfg.APIURL + "/api/v1/risks?" + q.Encode()
 
 	body, err := api.MakeAPIRequest(cfg, "GET", endpoint, nil)
 	if err != nil {
@@ -325,6 +337,14 @@ func CmdRiskList(args []string) {
 		fmt.Printf("%-10s %-12s %-8d %-20s %-50s\n",
 			r.RiskCode, statusStr, r.Score, r.Category, title)
 	}
+
+	// po-eedub: warn when the server returned a truncated result so the
+	// user knows they're seeing the first N by sort, not all matches.
+	if resp.Total > len(resp.Risks) {
+		fmt.Fprintf(os.Stderr,
+			"\nNote: showing first %d of %d total risks. Use --status / --category / --service to narrow.\n",
+			len(resp.Risks), resp.Total)
+	}
 }
 
 // CmdRiskReady shows the top unresolved risks ranked by score (highest value first).
@@ -352,9 +372,15 @@ func CmdRiskReady(args []string) {
 			}
 		case "--limit":
 			if i+1 < len(args) {
-				if n := parseInt(args[i+1]); n > 0 {
-					limit = n
+				// po-hu71i: reject non-numeric / non-positive --limit
+				// with a clear error rather than silently falling back
+				// to the default. Typos used to be invisible.
+				n, perr := strconv.Atoi(args[i+1])
+				if perr != nil || n < 1 {
+					fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", args[i+1])
+					os.Exit(1)
 				}
+				limit = n
 				i++
 			}
 		case "--format":
@@ -365,16 +391,20 @@ func CmdRiskReady(args []string) {
 		}
 	}
 
-	// Fetch risks sorted by score descending
-	endpoint := cfg.APIURL + "/api/v1/risks"
-	queryParams := []string{"limit=1000", "sort_by=score", "sort_order=desc"}
+	// Fetch risks sorted by score descending.
+	// po-2msnd: URL-encode query params via url.Values so filter values
+	// with '&', '=', or '%' can't smuggle extra params.
+	q := url.Values{}
+	q.Set("limit", "1000")
+	q.Set("sort_by", "score")
+	q.Set("sort_order", "desc")
 	if categoryFilter != "" {
-		queryParams = append(queryParams, fmt.Sprintf("category=%s", categoryFilter))
+		q.Set("category", categoryFilter)
 	}
 	if serviceFilter != "" {
-		queryParams = append(queryParams, fmt.Sprintf("service=%s", serviceFilter))
+		q.Set("service", serviceFilter)
 	}
-	endpoint += "?" + strings.Join(queryParams, "&")
+	endpoint := cfg.APIURL + "/api/v1/risks?" + q.Encode()
 
 	body, err := api.MakeAPIRequest(cfg, "GET", endpoint, nil)
 	if err != nil {
@@ -386,6 +416,16 @@ func CmdRiskReady(args []string) {
 	if err := json.Unmarshal(body, &resp); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing response: %v\n", err)
 		os.Exit(1)
+	}
+
+	// po-eedub: the server caps every request at limit=1000. If the
+	// tenant has more than 1000 risks the score-desc ranking is computed
+	// on a truncated set and "ready" surfaces the wrong top-N. We can't
+	// fix that purely client-side, but we can warn loudly.
+	if resp.Total > len(resp.Risks) {
+		fmt.Fprintf(os.Stderr,
+			"Warning: tenant has %d risks but the server returned only %d (capped at limit=1000). 'ready' ranking may be incomplete; tighten --category/--service to narrow.\n",
+			resp.Total, len(resp.Risks))
 	}
 
 	// Filter to open statuses only. The polaris API emits applicable /
@@ -401,11 +441,24 @@ func CmdRiskReady(args []string) {
 	}
 
 	if format == "json" {
+		// po-9a07e: emit the wrapped {risks, total} shape so jq
+		// pipelines have one schema across `risk list` and `risk ready`.
+		// Previously this emitted a bare array.
 		out := ready
 		if len(out) > limit {
 			out = out[:limit]
 		}
-		jsonBytes, _ := json.MarshalIndent(out, "", "  ")
+		wrapped := ListRisksResponse{
+			Risks: out,
+			Total: len(ready),
+			Page:  1,
+			Limit: limit,
+		}
+		jsonBytes, jerr := json.MarshalIndent(wrapped, "", "  ")
+		if jerr != nil {
+			fmt.Fprintf(os.Stderr, "Error encoding JSON: %v\n", jerr)
+			os.Exit(1)
+		}
 		fmt.Println(string(jsonBytes))
 		return
 	}
@@ -460,18 +513,6 @@ func classifyPriority(score int) string {
 	}
 }
 
-func parseInt(s string) int {
-	n := 0
-	for _, c := range s {
-		if c >= '0' && c <= '9' {
-			n = n*10 + int(c-'0')
-		} else {
-			return 0
-		}
-	}
-	return n
-}
-
 // CmdRiskShow shows detailed information about a specific risk
 func CmdRiskShow(args []string) {
 	if len(args) == 0 {
@@ -508,14 +549,12 @@ func CmdRiskShow(args []string) {
 
 	cfg := api.LoadAndResolveConfig()
 
-	riskCode := positional[0]
-	riskID, err := FindRiskIDByCode(cfg, riskCode)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error finding risk: %v\n", err)
-		os.Exit(1)
-	}
-
-	endpoint := cfg.APIURL + "/api/v1/risks/" + riskID
+	// po-eedub: GET /api/v1/risks/{id} now accepts R-XXX codes
+	// (po-bcs5c), so pass the user's input through directly instead of
+	// calling FindRiskIDByCode. The old indirection issued a list-all
+	// request capped at limit=1000 and produced false "risk not found"
+	// errors for tenants with >1000 risks.
+	endpoint := cfg.APIURL + "/api/v1/risks/" + url.PathEscape(positional[0])
 	body, err := api.MakeAPIRequest(cfg, "GET", endpoint, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error fetching risk: %v\n", err)
@@ -647,14 +686,11 @@ func CmdRiskContext(args []string) {
 
 	cfg := api.LoadAndResolveConfig()
 
-	riskCode := positional[0]
-	riskID, err := FindRiskIDByCode(cfg, riskCode)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error finding risk: %v\n", err)
-		os.Exit(1)
-	}
-
-	endpoint := cfg.APIURL + "/api/v1/risks/" + riskID + "/context"
+	// po-eedub: GET /api/v1/risks/{id}/context already accepted R-XXX
+	// codes; with po-bcs5c the show path matches, so we can pass the
+	// raw input through here and skip the limit=1000 FindRiskIDByCode
+	// round trip.
+	endpoint := cfg.APIURL + "/api/v1/risks/" + url.PathEscape(positional[0]) + "/context"
 	body, err := api.MakeAPIRequest(cfg, "GET", endpoint, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error fetching risk context: %v\n", err)
