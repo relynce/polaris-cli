@@ -222,11 +222,11 @@ func CmdStatus(version, gitHash string) {
 	if latestVersion := api.FetchLatestCLIVersion(); latestVersion != "" {
 		currentVersion := strings.TrimPrefix(version, "v")
 		if plugin.SemVerNewer(currentVersion, latestVersion) {
-			fmt.Printf("\nCLI update available: v%s -> v%s\n", currentVersion, latestVersion)
-			fmt.Println("  Upgrade: go install github.com/revelara-ai/rvl-cli/cmd/rvl@latest")
-			fmt.Println("  Release: https://github.com/revelara-ai/rvl-cli/releases/latest")
+			fmt.Fprintf(os.Stderr, "\nCLI update available: v%s -> v%s\n", currentVersion, latestVersion)
+			fmt.Fprintf(os.Stderr, "  Upgrade: go install github.com/revelara-ai/rvl-cli/cmd/rvl@latest\n")
+			fmt.Fprintf(os.Stderr, "  Release: https://github.com/revelara-ai/rvl-cli/releases/latest\n")
 		} else {
-			fmt.Printf("\nCLI: v%s (up to date)\n", currentVersion)
+			fmt.Fprintf(os.Stderr, "\nCLI: v%s (up to date)\n", currentVersion)
 		}
 	}
 
@@ -240,8 +240,8 @@ func CmdStatus(version, gitHash string) {
 	} else {
 		for _, p := range plugins {
 			if serverVersion != "" && plugin.SemVerNewer(p.Version, serverVersion) {
-				fmt.Printf("  %s: v%s (update available: v%s)\n", p.Editor, p.Version, serverVersion)
-				fmt.Printf("    Run 'rvl plugin update %s' to upgrade\n", p.Editor)
+				fmt.Fprintf(os.Stderr, "  %s: v%s (update available: v%s)\n", p.Editor, p.Version, serverVersion)
+				fmt.Fprintf(os.Stderr, "    Run 'rvl plugin update %s' to upgrade\n", p.Editor)
 			} else if serverVersion != "" {
 				fmt.Printf("  %s: v%s (up to date)\n", p.Editor, p.Version)
 			} else {

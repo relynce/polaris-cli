@@ -295,26 +295,33 @@ func FetchLatestCLIVersion() string {
 }
 
 // FetchSigningKey fetches the Ed25519 public key used to sign plugin tarballs.
-// Returns nil if the server doesn't support signing or is unreachable.
-func FetchSigningKey(cfg *config.Config) ed25519.PublicKey {
+// Returns (nil, nil) when the server explicitly has no signing support (404).
+// Returns (nil, err) on network errors, unexpected non-200 responses, or decode
+// failures — callers must treat a non-nil error as fail-closed.
+func FetchSigningKey(cfg *config.Config) (ed25519.PublicKey, error) {
 	if cfg == nil || cfg.APIURL == "" {
-		return nil
+		return nil, nil
 	}
 
 	client := &http.Client{Timeout: 5 * time.Second}
 	req, err := http.NewRequest("GET", cfg.APIURL+"/api/v1/plugin/signing-key", nil)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("create signing-key request: %w", err)
 	}
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("fetch signing key: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// 404 means the server intentionally has no signing support — skip gracefully.
+	if resp.StatusCode == 404 {
+		return nil, nil
+	}
+
 	if resp.StatusCode != 200 {
-		return nil
+		return nil, fmt.Errorf("fetch signing key: unexpected status %d", resp.StatusCode)
 	}
 
 	var result struct {
@@ -322,21 +329,21 @@ func FetchSigningKey(cfg *config.Config) ed25519.PublicKey {
 		PublicKey string `json:"public_key"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil
+		return nil, fmt.Errorf("decode signing key response: %w", err)
 	}
 
 	if result.Algorithm != "EdDSA" || result.PublicKey == "" {
-		return nil
+		return nil, fmt.Errorf("signing key response missing algorithm or public_key")
 	}
 
 	keyBytes, err := hex.DecodeString(result.PublicKey)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("decode signing key hex: %w", err)
 	}
 
 	if len(keyBytes) != ed25519.PublicKeySize {
-		return nil
+		return nil, fmt.Errorf("signing key has wrong length: got %d, want %d", len(keyBytes), ed25519.PublicKeySize)
 	}
 
-	return ed25519.PublicKey(keyBytes)
+	return ed25519.PublicKey(keyBytes), nil
 }

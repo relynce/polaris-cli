@@ -209,8 +209,13 @@ func InstallPlugin(editor, projectRoot string) error {
 		fmt.Println("✓ Checksum verified")
 	}
 
-	// Verify integrity manifest signature and per-file hashes
-	signingKey := api.FetchSigningKey(cfg)
+	// Verify integrity manifest signature and per-file hashes.
+	// nil key + nil err means server has no signing support; proceed.
+	// non-nil err means the key endpoint failed unexpectedly; fail-closed.
+	signingKey, skErr := api.FetchSigningKey(cfg)
+	if skErr != nil {
+		return fmt.Errorf("could not fetch signing key for integrity verification: %w", skErr)
+	}
 	if signingKey != nil {
 		manifest, verifyErr := VerifyTarball(tarballData, signingKey)
 		if verifyErr != nil {
@@ -403,12 +408,22 @@ func ListInstalledAgents(args []string) {
 
 	agentsDir, err := installedAgentsDir(editor)
 	if err != nil {
+		if asJSON {
+			fmt.Println(`{"agents":[]}`)
+			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+			return
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 
 	entries, err := os.ReadDir(agentsDir)
 	if err != nil {
+		if asJSON {
+			fmt.Println(`{"agents":[]}`)
+			fmt.Fprintf(os.Stderr, "Warning: read agents directory %s: %v\n", agentsDir, err)
+			return
+		}
 		fmt.Fprintf(os.Stderr, "Error: read agents directory %s: %v\n", agentsDir, err)
 		os.Exit(1)
 	}
