@@ -3,9 +3,12 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
 	"github.com/revelara-ai/rvl-cli/internal/display"
@@ -330,17 +333,40 @@ Examples:
 func cmdKnowledgeSearch(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Error: search query required")
-		fmt.Fprintln(os.Stderr, "Usage: rvl knowledge search <query> [--limit=N]")
+		fmt.Fprintln(os.Stderr, "Usage: rvl knowledge search <query> [--limit=N] [--offset=N] [--format=json]")
 		os.Exit(1)
 	}
 
-	var queryParts []string
-	limit := 20
+	// po-ukfmt: --format=json short-circuits the table render so
+	// /rvl:scan and /rvl:fix can parse the body with jq.
+	// po-0704c: --offset enables paging through results larger than
+	// the server cap.
+	var (
+		queryParts []string
+		format     string
+		limit      = 20
+		offset     = 0
+	)
 
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "--limit=") {
-			fmt.Sscanf(strings.TrimPrefix(arg, "--limit="), "%d", &limit)
-		} else if !strings.HasPrefix(arg, "-") {
+		switch {
+		case strings.HasPrefix(arg, "--limit="):
+			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
+			if perr != nil || n < 1 {
+				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", strings.TrimPrefix(arg, "--limit="))
+				os.Exit(1)
+			}
+			limit = n
+		case strings.HasPrefix(arg, "--offset="):
+			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--offset="))
+			if perr != nil || n < 0 {
+				fmt.Fprintf(os.Stderr, "Error: --offset expects a non-negative integer, got %q\n", strings.TrimPrefix(arg, "--offset="))
+				os.Exit(1)
+			}
+			offset = n
+		case strings.HasPrefix(arg, "--format="):
+			format = strings.TrimPrefix(arg, "--format=")
+		case !strings.HasPrefix(arg, "-"):
 			queryParts = append(queryParts, arg)
 		}
 	}
@@ -355,16 +381,22 @@ func cmdKnowledgeSearch(args []string) {
 
 	// POST /api/knowledge/search
 	body := map[string]interface{}{
-		"query": query,
-		"limit": limit,
+		"query":  query,
+		"limit":  limit,
+		"offset": offset,
 	}
 	bodyBytes, _ := json.Marshal(body)
 
-	url := cfg.APIURL + "/api/knowledge/search"
-	resp, err := api.MakeAPIRequest(cfg, "POST", url, bodyBytes)
+	endpoint := cfg.APIURL + "/api/knowledge/search"
+	resp, err := api.MakeAPIRequest(cfg, "POST", endpoint, bodyBytes)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+
+	if format == "json" {
+		fmt.Println(string(resp))
+		return
 	}
 
 	var searchResp KnowledgeSearchResponse
@@ -392,41 +424,73 @@ func cmdKnowledgeSearch(args []string) {
 	}
 }
 
-// cmdKnowledgeFacts lists or searches facts
+// cmdKnowledgeFacts lists or searches facts.
+//
+// po-ukfmt: --format=json emits the raw server body for jq pipelines.
+// po-4xrz5: query string built via url.Values so filter values with
+// special chars don't smuggle extra params.
+// po-0704c: --offset enables paging.
 func cmdKnowledgeFacts(args []string) {
-	var vertical, technology, status string
-	limit := 20
+	var (
+		vertical, technology, status, format string
+		limit                                = 20
+		offset                               = 0
+	)
 
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "--vertical=") {
+		switch {
+		case strings.HasPrefix(arg, "--vertical="):
 			vertical = strings.TrimPrefix(arg, "--vertical=")
-		} else if strings.HasPrefix(arg, "--technology=") {
+		case strings.HasPrefix(arg, "--technology="):
 			technology = strings.TrimPrefix(arg, "--technology=")
-		} else if strings.HasPrefix(arg, "--status=") {
+		case strings.HasPrefix(arg, "--status="):
 			status = strings.TrimPrefix(arg, "--status=")
-		} else if strings.HasPrefix(arg, "--limit=") {
-			fmt.Sscanf(strings.TrimPrefix(arg, "--limit="), "%d", &limit)
+		case strings.HasPrefix(arg, "--limit="):
+			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
+			if perr != nil || n < 1 {
+				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer\n")
+				os.Exit(1)
+			}
+			limit = n
+		case strings.HasPrefix(arg, "--offset="):
+			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--offset="))
+			if perr != nil || n < 0 {
+				fmt.Fprintf(os.Stderr, "Error: --offset expects a non-negative integer\n")
+				os.Exit(1)
+			}
+			offset = n
+		case strings.HasPrefix(arg, "--format="):
+			format = strings.TrimPrefix(arg, "--format=")
 		}
 	}
 
 	cfg := api.LoadAndResolveConfig()
 
-	// GET /api/knowledge/facts with query params
-	url := cfg.APIURL + "/api/knowledge/facts?limit=" + fmt.Sprintf("%d", limit)
+	q := url.Values{}
+	q.Set("limit", strconv.Itoa(limit))
+	if offset > 0 {
+		q.Set("offset", strconv.Itoa(offset))
+	}
 	if vertical != "" {
-		url += "&vertical=" + vertical
+		q.Set("vertical", vertical)
 	}
 	if technology != "" {
-		url += "&technology=" + technology
+		q.Set("technology", technology)
 	}
 	if status != "" {
-		url += "&status=" + status
+		q.Set("status", status)
 	}
+	endpoint := cfg.APIURL + "/api/knowledge/facts?" + q.Encode()
 
-	resp, err := api.MakeAPIRequest(cfg, "GET", url, nil)
+	resp, err := api.MakeAPIRequest(cfg, "GET", endpoint, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+
+	if format == "json" {
+		fmt.Println(string(resp))
+		return
 	}
 
 	var factsResp KnowledgeFactsResponse
@@ -452,47 +516,79 @@ func cmdKnowledgeFacts(args []string) {
 	}
 }
 
-// cmdKnowledgeProcedures lists or searches procedures
+// cmdKnowledgeProcedures lists or searches procedures.
+//
+// po-ukfmt + po-4xrz5 + po-0704c: same shape as cmdKnowledgeFacts.
 func cmdKnowledgeProcedures(args []string) {
-	var vertical, technology, procType, control string
-	limit := 20
+	var (
+		vertical, technology, procType, control, format string
+		limit                                           = 20
+		offset                                          = 0
+	)
 
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "--vertical=") {
+		switch {
+		case strings.HasPrefix(arg, "--vertical="):
 			vertical = strings.TrimPrefix(arg, "--vertical=")
-		} else if strings.HasPrefix(arg, "--technology=") {
+		case strings.HasPrefix(arg, "--technology="):
 			technology = strings.TrimPrefix(arg, "--technology=")
-		} else if strings.HasPrefix(arg, "--type=") {
+		case strings.HasPrefix(arg, "--type="):
 			procType = strings.TrimPrefix(arg, "--type=")
-		} else if strings.HasPrefix(arg, "--control=") {
+		case strings.HasPrefix(arg, "--control="):
 			control = strings.TrimPrefix(arg, "--control=")
-		} else if strings.HasPrefix(arg, "--limit=") {
-			fmt.Sscanf(strings.TrimPrefix(arg, "--limit="), "%d", &limit)
+		case strings.HasPrefix(arg, "--limit="):
+			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
+			if perr != nil || n < 1 {
+				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer\n")
+				os.Exit(1)
+			}
+			limit = n
+		case strings.HasPrefix(arg, "--offset="):
+			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--offset="))
+			if perr != nil || n < 0 {
+				fmt.Fprintf(os.Stderr, "Error: --offset expects a non-negative integer\n")
+				os.Exit(1)
+			}
+			offset = n
+		case strings.HasPrefix(arg, "--format="):
+			format = strings.TrimPrefix(arg, "--format=")
 		}
 	}
 
 	cfg := api.LoadAndResolveConfig()
 
-	// GET /api/knowledge/procedures with query params
-	url := cfg.APIURL + "/api/knowledge/procedures?limit=" + fmt.Sprintf("%d", limit)
+	q := url.Values{}
+	q.Set("limit", strconv.Itoa(limit))
+	if offset > 0 {
+		q.Set("offset", strconv.Itoa(offset))
+	}
 	if vertical != "" {
-		url += "&vertical=" + vertical
+		q.Set("vertical", vertical)
 	}
 	if technology != "" {
-		url += "&technology=" + technology
+		q.Set("technology", technology)
 	}
 	if procType != "" {
-		url += "&type=" + procType
+		q.Set("type", procType)
 	}
-	// Control filter: use as query text since API doesn't have a direct control filter param
+	// Control filter: use as query text since API doesn't have a direct control filter param.
 	if control != "" {
-		url += "&q=" + control
+		q.Set("q", control)
 	}
+	endpoint := cfg.APIURL + "/api/knowledge/procedures?" + q.Encode()
 
-	resp, err := api.MakeAPIRequest(cfg, "GET", url, nil)
+	resp, err := api.MakeAPIRequest(cfg, "GET", endpoint, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+
+	if format == "json" && control == "" {
+		// When --control is set we want to filter client-side before
+		// emitting (po-x7pk0); skip the raw-body short-circuit in that
+		// case so the filter still applies.
+		fmt.Println(string(resp))
+		return
 	}
 
 	var procsResp KnowledgeProceduresResponse
@@ -507,7 +603,12 @@ func cmdKnowledgeProcedures(args []string) {
 	}
 
 	// If filtering by control code, filter client-side on related_controls.
-	// When nothing matches the control, fall back to showing all results from the query.
+	//
+	// po-x7pk0: previously this fell back to the unfiltered query when
+	// no procedure matched the control, which silently surfaced
+	// completely unrelated procedures as if they were remediations for
+	// the requested control. Now zero matches means zero results, full
+	// stop — the caller sees the truth.
 	if control != "" {
 		var filtered []KnowledgeProcedure
 		for _, p := range procsResp.Procedures {
@@ -518,9 +619,25 @@ func cmdKnowledgeProcedures(args []string) {
 				}
 			}
 		}
-		if len(filtered) > 0 {
-			procsResp.Procedures = filtered
+		procsResp.Procedures = filtered
+		procsResp.Total = len(filtered)
+		if len(filtered) == 0 {
+			fmt.Printf("No procedures matching control %s.\n", control)
+			return
 		}
+	}
+
+	// po-ukfmt: re-emit JSON after the client-side --control filter
+	// has been applied so the slash command sees the actually-filtered
+	// set, not the raw server response.
+	if format == "json" {
+		out, jerr := json.MarshalIndent(procsResp, "", "  ")
+		if jerr != nil {
+			fmt.Fprintf(os.Stderr, "Error encoding JSON: %v\n", jerr)
+			os.Exit(1)
+		}
+		fmt.Println(string(out))
+		return
 	}
 
 	fmt.Printf("Found %d procedures:\n\n", procsResp.Total)
@@ -542,42 +659,76 @@ func cmdKnowledgeProcedures(args []string) {
 	}
 }
 
-// cmdKnowledgePatterns lists or searches patterns
+// cmdKnowledgePatterns lists or searches patterns.
+//
+// po-ukfmt + po-4xrz5 + po-0704c: same shape as cmdKnowledgeFacts.
 func cmdKnowledgePatterns(args []string) {
-	var vertical, patternType string
-	minOccurrences := 0
-	limit := 20
+	var (
+		vertical, patternType, format string
+		minOccurrences                = 0
+		limit                         = 20
+		offset                        = 0
+	)
 
 	for _, arg := range args {
-		if strings.HasPrefix(arg, "--vertical=") {
+		switch {
+		case strings.HasPrefix(arg, "--vertical="):
 			vertical = strings.TrimPrefix(arg, "--vertical=")
-		} else if strings.HasPrefix(arg, "--type=") {
+		case strings.HasPrefix(arg, "--type="):
 			patternType = strings.TrimPrefix(arg, "--type=")
-		} else if strings.HasPrefix(arg, "--min-occurrences=") {
-			fmt.Sscanf(strings.TrimPrefix(arg, "--min-occurrences="), "%d", &minOccurrences)
-		} else if strings.HasPrefix(arg, "--limit=") {
-			fmt.Sscanf(strings.TrimPrefix(arg, "--limit="), "%d", &limit)
+		case strings.HasPrefix(arg, "--min-occurrences="):
+			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--min-occurrences="))
+			if perr != nil || n < 0 {
+				fmt.Fprintf(os.Stderr, "Error: --min-occurrences expects a non-negative integer\n")
+				os.Exit(1)
+			}
+			minOccurrences = n
+		case strings.HasPrefix(arg, "--limit="):
+			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
+			if perr != nil || n < 1 {
+				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer\n")
+				os.Exit(1)
+			}
+			limit = n
+		case strings.HasPrefix(arg, "--offset="):
+			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--offset="))
+			if perr != nil || n < 0 {
+				fmt.Fprintf(os.Stderr, "Error: --offset expects a non-negative integer\n")
+				os.Exit(1)
+			}
+			offset = n
+		case strings.HasPrefix(arg, "--format="):
+			format = strings.TrimPrefix(arg, "--format=")
 		}
 	}
 
 	cfg := api.LoadAndResolveConfig()
 
-	// GET /api/knowledge/patterns with query params
-	url := cfg.APIURL + "/api/knowledge/patterns?limit=" + fmt.Sprintf("%d", limit)
+	q := url.Values{}
+	q.Set("limit", strconv.Itoa(limit))
+	if offset > 0 {
+		q.Set("offset", strconv.Itoa(offset))
+	}
 	if vertical != "" {
-		url += "&vertical=" + vertical
+		q.Set("vertical", vertical)
 	}
 	if patternType != "" {
-		url += "&type=" + patternType
+		q.Set("type", patternType)
 	}
 	if minOccurrences > 0 {
-		url += "&min_occurrences=" + fmt.Sprintf("%d", minOccurrences)
+		q.Set("min_occurrences", strconv.Itoa(minOccurrences))
 	}
+	endpoint := cfg.APIURL + "/api/knowledge/patterns?" + q.Encode()
 
-	resp, err := api.MakeAPIRequest(cfg, "GET", url, nil)
+	resp, err := api.MakeAPIRequest(cfg, "GET", endpoint, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+
+	if format == "json" {
+		fmt.Println(string(resp))
+		return
 	}
 
 	var patternsResp KnowledgePatternsResponse
@@ -654,21 +805,43 @@ func cmdKnowledgeHealth() {
 func cmdKnowledgeRelationships(args []string) {
 	if len(args) < 2 {
 		fmt.Fprintln(os.Stderr, "Error: entity type and entity ID required")
-		fmt.Fprintln(os.Stderr, "Usage: rvl knowledge relationships <type> <id>")
+		fmt.Fprintln(os.Stderr, "Usage: rvl knowledge relationships <type> <id> [--format=json]")
 		fmt.Fprintln(os.Stderr, "Types: fact, procedure, pattern, service, technology, control")
 		os.Exit(1)
 	}
 
-	entityType := args[0]
-	entityID := args[1]
+	var (
+		positional []string
+		format     string
+	)
+	for _, arg := range args {
+		switch {
+		case strings.HasPrefix(arg, "--format="):
+			format = strings.TrimPrefix(arg, "--format=")
+		default:
+			positional = append(positional, arg)
+		}
+	}
+	if len(positional) < 2 {
+		fmt.Fprintln(os.Stderr, "Error: entity type and entity ID required")
+		os.Exit(1)
+	}
+	entityType := positional[0]
+	entityID := positional[1]
 
 	cfg := api.LoadAndResolveConfig()
 
-	url := cfg.APIURL + "/api/knowledge/entities/" + entityType + "/" + entityID + "/relationships"
-	resp, err := api.MakeAPIRequest(cfg, "GET", url, nil)
+	// po-4xrz5: URL-encode the path segments so entity ids with /, ?, # don't smuggle.
+	endpoint := cfg.APIURL + "/api/knowledge/entities/" + url.PathEscape(entityType) + "/" + url.PathEscape(entityID) + "/relationships"
+	resp, err := api.MakeAPIRequest(cfg, "GET", endpoint, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+
+	if format == "json" {
+		fmt.Println(string(resp))
+		return
 	}
 
 	var relsResp KnowledgeRelationshipsResponse
@@ -821,8 +994,12 @@ func cmdKnowledgeForesight(args []string) {
 	}
 	bodyBytes, _ := json.Marshal(body)
 
-	url := cfg.APIURL + "/api/knowledge/foresight"
-	resp, err := api.MakeAPIRequest(cfg, "POST", url, bodyBytes)
+	// po-8eld4: foresight at depth>=3 walks a meaningful slice of the
+	// knowledge graph and can take well beyond the default 30s timeout
+	// on a populated KB. Give it a 5-minute budget; the server itself
+	// caps depth at 7 (see api/paths/knowledge.yaml).
+	endpoint := cfg.APIURL + "/api/knowledge/foresight"
+	resp, err := api.MakeAPIRequestWithTimeout(cfg, "POST", endpoint, bodyBytes, 5*time.Minute)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

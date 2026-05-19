@@ -124,9 +124,23 @@ func ValidateCredentials(cfg *config.Config) error {
 	return nil
 }
 
-// MakeAPIRequest makes an authenticated API request
+// MakeAPIRequest makes an authenticated API request with the default
+// 30s timeout. Most CLI calls finish well inside that budget.
+//
+// po-8eld4: when a longer budget is required (e.g. the knowledge
+// foresight subcommand walks the graph at depth>=3 and can take
+// minutes on a populated KB), call MakeAPIRequestWithTimeout instead
+// and pass an explicit per-call timeout.
 func MakeAPIRequest(cfg *config.Config, method, url string, body []byte) ([]byte, error) {
-	client := &http.Client{Timeout: 30 * time.Second}
+	return MakeAPIRequestWithTimeout(cfg, method, url, body, 30*time.Second)
+}
+
+// MakeAPIRequestWithTimeout is the per-call timeout variant of
+// MakeAPIRequest. Use a generous timeout for endpoints that walk the
+// knowledge graph or run hybrid search over large corpora; use the
+// default 30s for most things.
+func MakeAPIRequestWithTimeout(cfg *config.Config, method, url string, body []byte, timeout time.Duration) ([]byte, error) {
+	client := &http.Client{Timeout: timeout}
 
 	var bodyReader io.Reader
 	if body != nil {
