@@ -23,7 +23,7 @@ func LoadAndResolveConfig() *config.Config {
 		os.Exit(1)
 	}
 	if cfg == nil || cfg.APIKey == "" {
-		fmt.Fprintln(os.Stderr, "Error: Not configured. Run 'rely login' first.")
+		fmt.Fprintln(os.Stderr, "Error: Not configured. Run 'rvl login' first.")
 		os.Exit(1)
 	}
 	if err := ResolveOrganizationID(cfg); err != nil {
