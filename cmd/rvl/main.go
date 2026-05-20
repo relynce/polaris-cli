@@ -168,6 +168,8 @@ func main() {
 		commands.CmdControl(os.Args[2:])
 	case "knowledge":
 		commands.CmdKnowledge(os.Args[2:])
+	case "incident":
+		commands.CmdIncident(os.Args[2:])
 	case "evidence":
 		commands.CmdEvidence(os.Args[2:])
 	case "config":
