@@ -19,6 +19,7 @@ import (
 	"github.com/revelara-ai/rvl-cli/internal/api"
 	"github.com/revelara-ai/rvl-cli/internal/config"
 	"github.com/revelara-ai/rvl-cli/internal/project"
+	"github.com/revelara-ai/rvl-cli/internal/scanner"
 )
 
 // ScanType is the enumerated scan_type value. The Polaris handler validates
@@ -253,6 +254,7 @@ func CmdScan(args []string, version string) {
 	var profileFlag string  // po-3vsvk
 	var cleanupOnSuccess bool // po-gg5dg: remove --scan-dir after a 2xx submit
 	var timeoutFlag string    // po-p3k56: optional override for scan submission timeout
+	var noDigest bool         // po-ta8wj.1: skip digest.compact read/write
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -359,6 +361,8 @@ func CmdScan(args []string, version string) {
 			profileFlag = args[i]
 		case "--cleanup-on-success":
 			cleanupOnSuccess = true
+		case "--no-digest":
+			noDigest = true
 		case "--timeout":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --timeout requires a value (e.g. 90s, 2m)")
@@ -419,6 +423,7 @@ func CmdScan(args []string, version string) {
 			mode:                 scanModeFlag,
 			profile:              profileFlag,
 			timeout:              timeoutFlag,
+			noDigest:             noDigest,
 		})
 		return
 	}
@@ -466,6 +471,26 @@ func CmdScan(args []string, version string) {
 		if err := mergeScanDir(scanDir, &scanReq); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
+		}
+		// po-ta8wj.3: deduplicate cross-agent findings after merge.
+		// Round-trip via JSON so typed dedup works on the interface{} slice.
+		if len(scanReq.Findings) > 0 {
+			if rawData, mErr := json.Marshal(scanReq.Findings); mErr == nil {
+				var typed []scanner.ScanFinding
+				if uErr := json.Unmarshal(rawData, &typed); uErr == nil {
+					original := len(typed)
+					typed = scanner.DeduplicateFindings(typed)
+					if len(typed) < original {
+						fmt.Fprintf(os.Stderr, "scanner: deduplicated %d cross-agent duplicate(s)\n", original-len(typed))
+						if dedupData, mErr2 := json.Marshal(typed); mErr2 == nil {
+							var deduped []interface{}
+							if uErr2 := json.Unmarshal(dedupData, &deduped); uErr2 == nil {
+								scanReq.Findings = deduped
+							}
+						}
+					}
+				}
+			}
 		}
 	} else {
 		var inputData []byte

@@ -3,6 +3,7 @@ package scanner
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // FindingGroup aggregates ScanFindings that share a matcher slug + category.
@@ -91,4 +92,139 @@ func Group(findings []ScanFinding) []FindingGroup {
 		return out[i].Title < out[j].Title
 	})
 	return out
+}
+
+// DeduplicateFindings collapses findings that share (Slug, primary evidence
+// path, primary evidence line) into one finding. The highest RiskScore
+// instance is kept. When scores are equal the first alphabetically by
+// Slug+Path wins (deterministic). CorroboratedByAgents records which
+// additional Component values (treated as agent identifiers) reported the
+// same finding. The returned slice preserves the relative order of
+// first-seen winners.
+//
+// For project-level findings that have no Evidence or an empty Evidence path,
+// the dedup key is just the Slug; all such findings with the same Slug collapse.
+//
+// po-ta8wj.3.
+func DeduplicateFindings(findings []ScanFinding) []ScanFinding {
+	if len(findings) == 0 {
+		return findings
+	}
+
+	type dedupKey struct {
+		slug string
+		path string
+		line int
+	}
+
+	evidencePath := func(f ScanFinding) string {
+		if len(f.Evidence) > 0 {
+			return f.Evidence[0].Path
+		}
+		return ""
+	}
+
+	keyFor := func(f ScanFinding) dedupKey {
+		if len(f.Evidence) > 0 && f.Evidence[0].Path != "" {
+			return dedupKey{f.Slug, f.Evidence[0].Path, f.Evidence[0].LineNumber}
+		}
+		return dedupKey{f.Slug, "", 0}
+	}
+
+	// Track insertion order for first-seen winners.
+	type entry struct {
+		idx     int // position in the winners slice
+		finding ScanFinding
+	}
+	winners := make(map[dedupKey]*entry, len(findings))
+	order := make([]dedupKey, 0, len(findings))
+
+	for _, f := range findings {
+		k := keyFor(f)
+		w, exists := winners[k]
+		if !exists {
+			// First time we see this key: it becomes the winner.
+			idx := len(order)
+			winners[k] = &entry{idx: idx, finding: f}
+			order = append(order, k)
+			continue
+		}
+
+		// Duplicate: decide whether the new finding beats the current winner.
+		winner := w.finding
+		replace := f.RiskScore > winner.RiskScore
+		if !replace && f.RiskScore == winner.RiskScore {
+			// Tiebreak: alphabetically by Slug+Path — keep lexically earlier.
+			winKey := winner.Slug + evidencePath(winner)
+			newKey := f.Slug + evidencePath(f)
+			replace = newKey < winKey
+		}
+
+		var loserComponent string
+		if replace {
+			loserComponent = winner.Component
+			// Carry corroboration from loser to new winner.
+			corroboration := mergeStrings(f.CorroboratedByAgents, winner.CorroboratedByAgents)
+			if loserComponent != "" && loserComponent != f.Component {
+				corroboration = appendUnique(corroboration, loserComponent)
+			}
+			newWinner := f
+			newWinner.CorroboratedByAgents = nilIfEmpty(corroboration)
+			w.finding = newWinner
+		} else {
+			loserComponent = f.Component
+			// Accumulate corroboration on existing winner.
+			corroboration := mergeStrings(winner.CorroboratedByAgents, f.CorroboratedByAgents)
+			if loserComponent != "" && loserComponent != winner.Component {
+				corroboration = appendUnique(corroboration, loserComponent)
+			}
+			winner.CorroboratedByAgents = nilIfEmpty(corroboration)
+			w.finding = winner
+		}
+	}
+
+	// Rebuild output in insertion order to ensure stability.
+	result := make([]ScanFinding, 0, len(order))
+	for _, k := range order {
+		result = append(result, winners[k].finding)
+	}
+	return result
+}
+
+func mergeStrings(a, b []string) []string {
+	seen := make(map[string]bool, len(a)+len(b))
+	var out []string
+	for _, s := range a {
+		if s != "" && !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	for _, s := range b {
+		if s != "" && !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func appendUnique(slice []string, s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return slice
+	}
+	for _, existing := range slice {
+		if existing == s {
+			return slice
+		}
+	}
+	return append(slice, s)
+}
+
+func nilIfEmpty(s []string) []string {
+	if len(s) == 0 {
+		return nil
+	}
+	return s
 }

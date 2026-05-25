@@ -36,6 +36,16 @@ type ScanFinding struct {
 	// an unchanged file. Empty means classification did not run
 	// (no base ref available); callers gate as if all findings are new.
 	Status string `json:"status,omitempty"`
+
+	// po-ta8wj.3: risk_score from the scan skill JSON (Polaris Path 5
+	// scoring formula result). Used by DeduplicateFindings to keep the
+	// highest-scoring instance when two agents report the same finding.
+	RiskScore int `json:"risk_score,omitempty"`
+
+	// po-ta8wj.3: agents that corroborated this finding in the same scan.
+	// Populated by DeduplicateFindings when multiple agents report the
+	// same (slug, evidence path, evidence line) tuple.
+	CorroboratedByAgents []string `json:"corroborated_by_agents,omitempty"`
 }
 
 // ScanProvenance carries the matcher provenance fields that influence the

@@ -36,6 +36,7 @@ type localScanArgs struct {
 	mode                 string // po-f96kz: "" | enforce | eval — eval always exits 0
 	profile              string // po-3vsvk: matcher profile (fast | full | <custom>)
 	timeout              string // po-p3k56: --timeout flag value (Go duration), empty falls through to RVL_SCAN_TIMEOUT / defaultScanTimeout
+	noDigest             bool   // po-ta8wj.1: skip reading/writing digest.compact
 }
 
 // runLocalScan is the --local code path. Builds a matcher list, runs
@@ -76,6 +77,18 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 		fmt.Fprintln(os.Stderr, "Error: --service is required (or use --target with a project that has .revelara.yaml)")
 		os.Exit(2)
 	}
+
+	// po-ta8wj.1: load digest.compact for dismissed-slug filtering. If the
+	// file is absent, ReadDigest returns nil, nil and we proceed without it.
+	var digestEntries []project.DigestEntry
+	if !opts.noDigest {
+		if de, err := project.ReadDigest(absTarget); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to read digest: %v\n", err)
+		} else {
+			digestEntries = de
+		}
+	}
+	dismissed := project.DismissedSlugs(digestEntries)
 
 	// Build the matcher list. Curated matchers from the registry; org
 	// matchers loaded from the lazy-fetch cache (po-fayz.22).
@@ -236,6 +249,19 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	findings, matchedWaivers = filterFindingsByWaivers(findings, appliedWaivers, strict, floorSet)
 	_ = matchedWaivers // forwarded to submission metadata below
 
+	// po-ta8wj.1: filter out findings whose slug is marked DISMISSED or
+	// ACCEPTED in digest.compact. Happens after waiver filter so both
+	// suppress mechanisms coexist cleanly.
+	if len(dismissed) > 0 {
+		kept := findings[:0]
+		for _, f := range findings {
+			if !dismissed[f.Slug] {
+				kept = append(kept, f)
+			}
+		}
+		findings = kept
+	}
+
 	// Component mapping via existing project.MapFindingsToComponents
 	// (operates on []interface{}). Convert findings to that shape.
 	asInterfaces := make([]interface{}, 0, len(findings))
@@ -270,6 +296,35 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 	if opts.submit {
 		submitResp = submitLocalScan(cliVersion, service, projectCfg, asInterfaces, excludedMatcherSlugs, matchedWaivers, opts.timeout)
 	}
+
+	// po-ta8wj.1: update digest.compact after a successful submission.
+	if !opts.noDigest && opts.submit && submitResp != nil {
+		var digestUpdates []project.DigestEntry
+		digestUpdates = append(digestUpdates, project.DigestEntry{
+			Type:  "SCAN",
+			Key:   "last",
+			Value: time.Now().UTC().Format(time.RFC3339),
+			Meta:  opts.mode,
+		})
+		month := time.Now().UTC().Format("2006-01")
+		for _, f := range findings {
+			// Use Impact as the severity label; fall back to MEDIUM.
+			sev := strings.ToUpper(f.Impact)
+			if sev == "" {
+				sev = "MEDIUM"
+			}
+			digestUpdates = append(digestUpdates, project.DigestEntry{
+				Type:  "RISK",
+				Key:   f.Slug,
+				Value: sev + ":OPEN",
+				Meta:  month,
+			})
+		}
+		if err := project.AppendDigest(absTarget, digestUpdates); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to update digest: %v\n", err)
+		}
+	}
+
 	if strings.EqualFold(opts.format, "markdown") {
 		// Explicit markdown output: emit raw without glamour rendering,
 		// regardless of TTY.

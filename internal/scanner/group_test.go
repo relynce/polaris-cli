@@ -130,3 +130,135 @@ func TestGroupUsesUncategorizedWhenEmpty(t *testing.T) {
 		t.Errorf("got category %q, want uncategorized", got[0].Category)
 	}
 }
+
+// --- DeduplicateFindings tests (po-ta8wj.3) ---
+
+func mkFindingWithScore(slug, path string, line, score int, component string) ScanFinding {
+	return ScanFinding{
+		Slug:      slug,
+		Title:     slug,
+		Category:  "cat",
+		Impact:    "high",
+		Evidence:  []ScanEvidence{{Type: "code", Path: path, LineNumber: line}},
+		RiskScore: score,
+		Component: component,
+	}
+}
+
+func TestDeduplicateFindingsEmpty(t *testing.T) {
+	if got := DeduplicateFindings(nil); len(got) != 0 {
+		t.Errorf("DeduplicateFindings(nil) = %v, want empty", got)
+	}
+	if got := DeduplicateFindings([]ScanFinding{}); len(got) != 0 {
+		t.Errorf("DeduplicateFindings([]) = %v, want empty", got)
+	}
+}
+
+func TestDeduplicateFindingsNoDuplicates(t *testing.T) {
+	in := []ScanFinding{
+		mkFindingWithScore("a", "x.go", 1, 10, "svc-a"),
+		mkFindingWithScore("b", "y.go", 2, 20, "svc-b"),
+		mkFindingWithScore("c", "z.go", 3, 30, "svc-c"),
+	}
+	got := DeduplicateFindings(in)
+	if len(got) != 3 {
+		t.Fatalf("got %d findings, want 3", len(got))
+	}
+}
+
+// TestDeduplicateFindings10With3PairsReturns7 is the primary acceptance criterion.
+func TestDeduplicateFindings10With3PairsReturns7(t *testing.T) {
+	in := []ScanFinding{
+		// Pair 1: slug "alpha", x.go:10 — second has higher score, wins
+		mkFindingWithScore("alpha", "x.go", 10, 5, "agent-1"),
+		mkFindingWithScore("alpha", "x.go", 10, 15, "agent-2"),
+		// Pair 2: slug "beta", y.go:20 — both same score, first wins alphabetically
+		mkFindingWithScore("beta", "y.go", 20, 8, "agent-1"),
+		mkFindingWithScore("beta", "y.go", 20, 8, "agent-3"),
+		// Pair 3: slug "gamma", z.go:30 — first has higher score, wins
+		mkFindingWithScore("gamma", "z.go", 30, 50, "agent-2"),
+		mkFindingWithScore("gamma", "z.go", 30, 20, "agent-3"),
+		// Unique findings (no duplicates)
+		mkFindingWithScore("delta", "a.go", 1, 10, "agent-1"),
+		mkFindingWithScore("epsilon", "b.go", 2, 10, "agent-2"),
+		mkFindingWithScore("zeta", "c.go", 3, 10, "agent-3"),
+		mkFindingWithScore("eta", "d.go", 4, 10, "agent-1"),
+	}
+	got := DeduplicateFindings(in)
+	if len(got) != 7 {
+		t.Fatalf("got %d findings, want 7: %+v", len(got), got)
+	}
+}
+
+func TestDeduplicateFindingsHigherScoreWins(t *testing.T) {
+	in := []ScanFinding{
+		mkFindingWithScore("slug", "x.go", 1, 5, "low-scorer"),
+		mkFindingWithScore("slug", "x.go", 1, 15, "high-scorer"),
+	}
+	got := DeduplicateFindings(in)
+	if len(got) != 1 {
+		t.Fatalf("got %d findings, want 1", len(got))
+	}
+	if got[0].Component != "high-scorer" {
+		t.Errorf("winner component = %q, want high-scorer", got[0].Component)
+	}
+}
+
+func TestDeduplicateFindingsCorroboratedByAgents(t *testing.T) {
+	in := []ScanFinding{
+		mkFindingWithScore("slug", "x.go", 1, 10, "agent-a"),
+		mkFindingWithScore("slug", "x.go", 1, 5, "agent-b"),
+	}
+	got := DeduplicateFindings(in)
+	if len(got) != 1 {
+		t.Fatalf("got %d findings, want 1", len(got))
+	}
+	// Winner is agent-a (higher score); agent-b is corroboration.
+	if got[0].Component != "agent-a" {
+		t.Errorf("winner = %q, want agent-a", got[0].Component)
+	}
+	if len(got[0].CorroboratedByAgents) == 0 {
+		t.Error("CorroboratedByAgents should be non-empty when agents differ")
+	}
+	found := false
+	for _, a := range got[0].CorroboratedByAgents {
+		if a == "agent-b" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("CorroboratedByAgents = %v, want to contain agent-b", got[0].CorroboratedByAgents)
+	}
+}
+
+func TestDeduplicateFindingsProjectLevel(t *testing.T) {
+	// Project-level findings (no Evidence path) should dedup by slug alone.
+	f1 := ScanFinding{Slug: "proj-slug", Title: "T", Category: "cat", Impact: "high", RiskScore: 10, Component: "agent-1"}
+	f2 := ScanFinding{Slug: "proj-slug", Title: "T", Category: "cat", Impact: "high", RiskScore: 5, Component: "agent-2"}
+	got := DeduplicateFindings([]ScanFinding{f1, f2})
+	if len(got) != 1 {
+		t.Fatalf("got %d findings, want 1", len(got))
+	}
+	if got[0].Component != "agent-1" {
+		t.Errorf("winner = %q, want agent-1", got[0].Component)
+	}
+}
+
+func TestDeduplicateFindingsDeterministic(t *testing.T) {
+	// Same input should always produce same output.
+	in := []ScanFinding{
+		mkFindingWithScore("a", "x.go", 1, 10, "c1"),
+		mkFindingWithScore("b", "y.go", 2, 20, "c2"),
+		mkFindingWithScore("a", "x.go", 1, 10, "c3"),
+	}
+	got1 := DeduplicateFindings(in)
+	got2 := DeduplicateFindings(in)
+	if len(got1) != len(got2) {
+		t.Fatalf("non-deterministic: len %d vs %d", len(got1), len(got2))
+	}
+	for i := range got1 {
+		if got1[i].Slug != got2[i].Slug || got1[i].Component != got2[i].Component {
+			t.Errorf("non-deterministic at index %d: %+v vs %+v", i, got1[i], got2[i])
+		}
+	}
+}
