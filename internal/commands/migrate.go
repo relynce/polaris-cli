@@ -139,15 +139,15 @@ func migrateConfigDirectory(home string, yesAll, dryRun bool) string {
 		return "" // already exists
 	}
 
-	relynceDir := filepath.Join(home, ".relynce")
-	if _, err := os.Stat(relynceDir); err == nil {
+	legacyRelynceDir := filepath.Join(home, ".relynce")
+	if _, err := os.Stat(legacyRelynceDir); err == nil {
 		if dryRun {
 			return "Would rename ~/.relynce/ -> ~/.revelara/"
 		}
 		if !yesAll && !confirmStep("Rename ~/.relynce/ to ~/.revelara/?") {
 			return ""
 		}
-		if err := os.Rename(relynceDir, newDir); err != nil {
+		if err := os.Rename(legacyRelynceDir, newDir); err != nil {
 			fmt.Fprintf(os.Stderr, "  [error]    Failed to rename config dir: %v\n", err)
 			return ""
 		}
@@ -212,12 +212,12 @@ func migrateProjectConfig(gitRoot string, dryRun bool) string {
 		return "" // already migrated
 	}
 
-	relyncePath := filepath.Join(gitRoot, ".relynce.yaml")
-	if _, err := os.Stat(relyncePath); err == nil {
+	legacyRelyncePath := filepath.Join(gitRoot, ".relynce.yaml")
+	if _, err := os.Stat(legacyRelyncePath); err == nil {
 		if dryRun {
 			return "Would rename .relynce.yaml -> .revelara.yaml"
 		}
-		if err := os.Rename(relyncePath, revelaraPath); err != nil {
+		if err := os.Rename(legacyRelyncePath, revelaraPath); err != nil {
 			fmt.Fprintf(os.Stderr, "  [error]    Failed to rename project config: %v\n", err)
 			return ""
 		}

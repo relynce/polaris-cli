@@ -56,16 +56,16 @@ func migrateConfigDir() {
 
 	// If target already exists, still ensure api_url is current and return.
 	if _, err := os.Stat(newDir); err == nil {
-		rewriteRelynceAPIURL(filepath.Join(newDir, "config.yaml"))
+		rewriteLegacyAPIURL(filepath.Join(newDir, "config.yaml"))
 		return
 	}
 
 	// Try renaming ~/.relynce/ -> ~/.revelara/
-	relynceDir := filepath.Join(home, ".relynce")
-	if _, err := os.Stat(relynceDir); err == nil {
-		if err := os.Rename(relynceDir, newDir); err == nil {
+	legacyRelynceDir := filepath.Join(home, ".relynce")
+	if _, err := os.Stat(legacyRelynceDir); err == nil {
+		if err := os.Rename(legacyRelynceDir, newDir); err == nil {
 			fmt.Fprintf(os.Stderr, "Migrated configuration from ~/.relynce/ to ~/.revelara/\n")
-			rewriteRelynceAPIURL(filepath.Join(newDir, "config.yaml"))
+			rewriteLegacyAPIURL(filepath.Join(newDir, "config.yaml"))
 			return
 		}
 	}
@@ -99,13 +99,13 @@ func migrateConfigDir() {
 	}
 	if migrated > 0 {
 		fmt.Fprintf(os.Stderr, "Migrated configuration from ~/.polaris/ to ~/.revelara/\n")
-		rewriteRelynceAPIURL(filepath.Join(newDir, "config.yaml"))
+		rewriteLegacyAPIURL(filepath.Join(newDir, "config.yaml"))
 	}
 }
 
-// rewriteRelynceAPIURL replaces api.relynce.ai with api.revelara.ai in the
+// rewriteLegacyAPIURL replaces api.relynce.ai with api.revelara.ai in the
 // given config file. No-op if the file is missing or already current.
-func rewriteRelynceAPIURL(configPath string) {
+func rewriteLegacyAPIURL(configPath string) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return

@@ -453,7 +453,7 @@ func EnsureAgentsMd(gitRoot string, force, yesAll bool) (string, error) {
 	}
 
 	contentStr := string(content)
-	hasPolarisSection := strings.Contains(contentStr, "## Revelara") || strings.Contains(contentStr, "## Relynce")
+	hasPolarisSection := strings.Contains(contentStr, "## Revelara")
 
 	if !hasPolarisSection {
 		var shouldAppend bool

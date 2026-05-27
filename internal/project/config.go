@@ -139,14 +139,14 @@ func LoadProjectConfigFrom(targetDir string) *ProjectConfig {
 	}
 
 	revelaraPath := filepath.Join(gitRoot, ".revelara.yaml")
-	relyncePath := filepath.Join(gitRoot, ".relynce.yaml")
+	legacyRelyncePath := filepath.Join(gitRoot, ".relynce.yaml")
 	polarisPath := filepath.Join(gitRoot, ".polaris.yaml")
 
 	// 1. Try .revelara.yaml first
 	data, err := os.ReadFile(revelaraPath)
 	if err != nil {
 		// 2. Fallback: try .relynce.yaml and auto-rename
-		data, err = os.ReadFile(relyncePath)
+		data, err = os.ReadFile(legacyRelyncePath)
 		if err != nil {
 			// 3. Fallback: try .polaris.yaml and auto-rename
 			data, err = os.ReadFile(polarisPath)
@@ -157,7 +157,7 @@ func LoadProjectConfigFrom(targetDir string) *ProjectConfig {
 				fmt.Fprintf(os.Stderr, "Renamed .polaris.yaml to .revelara.yaml\n")
 			}
 		} else {
-			if renameErr := os.Rename(relyncePath, revelaraPath); renameErr == nil {
+			if renameErr := os.Rename(legacyRelyncePath, revelaraPath); renameErr == nil {
 				fmt.Fprintf(os.Stderr, "Renamed .relynce.yaml to .revelara.yaml\n")
 			}
 		}
