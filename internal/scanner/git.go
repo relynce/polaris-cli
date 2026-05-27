@@ -112,7 +112,7 @@ func ResolveChangedFiles(root, baseRef string) ([]string, error) {
 	if baseRef == "" {
 		return nil, nil
 	}
-	cmd := exec.Command("git", "-C", root, "diff", "--name-only", baseRef+"...HEAD")
+	cmd := exec.Command("git", "-C", root, "diff", "--name-only", "--", baseRef+"...HEAD")
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	if err != nil {
@@ -134,6 +134,9 @@ func ResolveChangedFiles(root, baseRef string) ([]string, error) {
 // local repository (i.e., `git rev-parse --verify --quiet <ref>` exits
 // cleanly).
 func gitRefReachable(root, ref string) bool {
+	if strings.HasPrefix(ref, "-") {
+		return false
+	}
 	cmd := exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
 	cmd.Stderr = nil
 	if err := cmd.Run(); err != nil {

@@ -39,7 +39,7 @@ func ResolveChangedHunks(root, baseRef string) (map[string][]LineRange, error) {
 	}
 	// -U0 strips context lines so hunks shrink to just the touched
 	// lines. Cleaner range data; same hunk-header semantics.
-	cmd := exec.Command("git", "-C", root, "diff", "-U0", baseRef+"...HEAD")
+	cmd := exec.Command("git", "-C", root, "diff", "-U0", "--", baseRef+"...HEAD")
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	if err != nil {

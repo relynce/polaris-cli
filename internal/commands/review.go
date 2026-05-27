@@ -322,6 +322,9 @@ func detectEnvironment() string {
 
 // resolveCommitSHA resolves a commit ref to a full SHA
 func resolveCommitSHA(ref string) string {
+	if strings.HasPrefix(ref, "-") {
+		return ""
+	}
 	cmd := exec.Command("git", "rev-parse", ref)
 	out, err := cmd.Output()
 	if err != nil {
@@ -332,6 +335,9 @@ func resolveCommitSHA(ref string) string {
 
 // getChangedFiles returns the list of changed files between base and commit
 func getChangedFiles(base, commit string) []string {
+	if strings.HasPrefix(base, "-") || strings.HasPrefix(commit, "-") {
+		return []string{}
+	}
 	cmd := exec.Command("git", "diff", "--name-only", base, commit)
 	out, err := cmd.Output()
 	if err != nil {

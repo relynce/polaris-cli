@@ -315,9 +315,10 @@ func FetchSigningKey(cfg *config.Config) (ed25519.PublicKey, error) {
 	}
 	defer resp.Body.Close()
 
-	// 404 means the server intentionally has no signing support — skip gracefully.
+	// 404: signing key endpoint not configured. Fail-closed to prevent verification bypass.
+	// Self-hosted deployments can set RVL_ALLOW_UNSIGNED_PLUGIN=1 to opt out.
 	if resp.StatusCode == 404 {
-		return nil, nil
+		return nil, fmt.Errorf("fetch signing key: server returned 404 (signing not configured); set RVL_ALLOW_UNSIGNED_PLUGIN=1 to install unsigned plugins")
 	}
 
 	if resp.StatusCode != 200 {

@@ -200,7 +200,11 @@ func InstallPlugin(editor, projectRoot string) error {
 		return fmt.Errorf("read tarball: %w", err)
 	}
 
-	if checksum != "" {
+	if checksum == "" {
+		if os.Getenv("RVL_ALLOW_MISSING_CHECKSUM") != "1" {
+			return fmt.Errorf("server did not send X-Checksum header; set RVL_ALLOW_MISSING_CHECKSUM=1 to install unsigned plugins")
+		}
+	} else {
 		hash := sha256.Sum256(tarballData)
 		actualChecksum := "sha256:" + hex.EncodeToString(hash[:])
 		if actualChecksum != checksum {
@@ -210,11 +214,15 @@ func InstallPlugin(editor, projectRoot string) error {
 	}
 
 	// Verify integrity manifest signature and per-file hashes.
-	// nil key + nil err means server has no signing support; proceed.
-	// non-nil err means the key endpoint failed unexpectedly; fail-closed.
+	// Fail-closed: non-nil err means signing check failed; plugin install is blocked.
+	// Self-hosted deployments can set RVL_ALLOW_UNSIGNED_PLUGIN=1 to opt out.
 	signingKey, skErr := api.FetchSigningKey(cfg)
 	if skErr != nil {
-		return fmt.Errorf("could not fetch signing key for integrity verification: %w", skErr)
+		if os.Getenv("RVL_ALLOW_UNSIGNED_PLUGIN") == "1" {
+			signingKey = nil // proceed without verification
+		} else {
+			return fmt.Errorf("could not fetch signing key for integrity verification: %w", skErr)
+		}
 	}
 	if signingKey != nil {
 		manifest, verifyErr := VerifyTarball(tarballData, signingKey)

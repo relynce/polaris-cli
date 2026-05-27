@@ -47,6 +47,9 @@ func init() {
 // Always runs the api_url rewrite at the end so partial-state directories
 // (renamed without api_url update) self-heal on the next invocation.
 func migrateConfigDir() {
+	if os.Getenv("RVL_SKIP_MIGRATION") == "1" {
+		return
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return
