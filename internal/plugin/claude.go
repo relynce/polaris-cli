@@ -118,6 +118,14 @@ func InstallClaudePlugin(version string, tarballData []byte) error {
 	}
 	fmt.Println("✓ Plugin installed")
 
+	// Prune stale version directories left by previous installs. Claude Code's
+	// `plugin install` creates a new versioned directory each time but never
+	// removes old ones, which can cause outdated skill files to be loaded
+	// alongside the current version.
+	if err := pruneOldCacheVersions(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not prune old plugin cache versions: %v\n", err)
+	}
+
 	// Save metadata for polaris CLI tracking
 	if err := SavePluginInfo("claude", version, pluginDir); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: could not save plugin metadata: %v\n", err)
@@ -140,6 +148,77 @@ func InstallClaudePlugin(version string, tarballData []byte) error {
 	fmt.Printf("Commands are now available: /rvl:scan, /rvl:fix, /rvl:ask, etc.\n")
 	fmt.Printf("\nRestart Claude Code to ensure all commands are loaded.\n")
 
+	return nil
+}
+
+// pruneOldCacheVersions removes stale versioned directories from the plugin
+// cache, keeping only the version that Claude Code's registry currently points
+// to. It reads ~/.claude/plugins/installed_plugins.json to find the active
+// installPath, then deletes all sibling directories under the same parent.
+func pruneOldCacheVersions() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	registryFile := filepath.Join(home, ".claude", "plugins", "installed_plugins.json")
+	data, err := os.ReadFile(registryFile)
+	if err != nil {
+		return fmt.Errorf("read installed_plugins.json: %w", err)
+	}
+
+	var reg struct {
+		Plugins map[string][]struct {
+			InstallPath string `json:"installPath"`
+		} `json:"plugins"`
+	}
+	if err := json.Unmarshal(data, &reg); err != nil {
+		return fmt.Errorf("parse installed_plugins.json: %w", err)
+	}
+
+	// Find the active installPath for the revelara plugin (key may be
+	// revelara@revelara-local or rvl@revelara-api depending on install path).
+	var activePath string
+	for _, entries := range reg.Plugins {
+		for _, e := range entries {
+			if filepath.Base(filepath.Dir(e.InstallPath)) == "revelara" {
+				activePath = e.InstallPath
+				break
+			}
+		}
+		if activePath != "" {
+			break
+		}
+	}
+	if activePath == "" {
+		return fmt.Errorf("revelara plugin not found in installed_plugins.json")
+	}
+
+	// Parent is e.g. ~/.claude/plugins/cache/revelara-local/revelara/
+	cacheParent := filepath.Dir(activePath)
+	activeVersion := filepath.Base(activePath)
+
+	entries, err := os.ReadDir(cacheParent)
+	if err != nil {
+		return fmt.Errorf("read cache directory: %w", err)
+	}
+
+	var pruned []string
+	for _, entry := range entries {
+		if !entry.IsDir() || entry.Name() == activeVersion {
+			continue
+		}
+		stale := filepath.Join(cacheParent, entry.Name())
+		if removeErr := os.RemoveAll(stale); removeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not remove stale cache version %s: %v\n", entry.Name(), removeErr)
+		} else {
+			pruned = append(pruned, entry.Name())
+		}
+	}
+
+	if len(pruned) > 0 {
+		fmt.Printf("✓ Pruned %d stale cache version(s): %v\n", len(pruned), pruned)
+	}
 	return nil
 }
 
