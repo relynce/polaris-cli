@@ -103,7 +103,12 @@ func Group(findings []ScanFinding) []FindingGroup {
 // first-seen winners.
 //
 // For project-level findings that have no Evidence or an empty Evidence path,
-// the dedup key is just the Slug; all such findings with the same Slug collapse.
+// the dedup key is just the Slug (or Title when Slug is empty); all such
+// findings with the same key collapse.
+//
+// LLM-generated findings from --scan-dir do not carry a Slug. Without a
+// Title fallback every slug-less finding would share the key {"","",0} and
+// the entire batch would collapse to one winner — the po-ta8wj.3 regression.
 //
 // po-ta8wj.3.
 func DeduplicateFindings(findings []ScanFinding) []ScanFinding {
@@ -124,11 +129,21 @@ func DeduplicateFindings(findings []ScanFinding) []ScanFinding {
 		return ""
 	}
 
+	// slugOrTitle returns the Slug when set; otherwise falls back to the Title.
+	// This ensures LLM-generated findings (no Slug) are keyed by their title
+	// rather than all collapsing into the empty-slug bucket.
+	slugOrTitle := func(f ScanFinding) string {
+		if f.Slug != "" {
+			return f.Slug
+		}
+		return f.Title
+	}
+
 	keyFor := func(f ScanFinding) dedupKey {
 		if len(f.Evidence) > 0 && f.Evidence[0].Path != "" {
-			return dedupKey{f.Slug, f.Evidence[0].Path, f.Evidence[0].LineNumber}
+			return dedupKey{slugOrTitle(f), f.Evidence[0].Path, f.Evidence[0].LineNumber}
 		}
-		return dedupKey{f.Slug, "", 0}
+		return dedupKey{slugOrTitle(f), "", 0}
 	}
 
 	// Track insertion order for first-seen winners.
@@ -154,9 +169,9 @@ func DeduplicateFindings(findings []ScanFinding) []ScanFinding {
 		winner := w.finding
 		replace := f.RiskScore > winner.RiskScore
 		if !replace && f.RiskScore == winner.RiskScore {
-			// Tiebreak: alphabetically by Slug+Path — keep lexically earlier.
-			winKey := winner.Slug + evidencePath(winner)
-			newKey := f.Slug + evidencePath(f)
+			// Tiebreak: alphabetically by (Slug|Title)+Path — keep lexically earlier.
+			winKey := slugOrTitle(winner) + evidencePath(winner)
+			newKey := slugOrTitle(f) + evidencePath(f)
 			replace = newKey < winKey
 		}
 
