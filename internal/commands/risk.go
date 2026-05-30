@@ -197,6 +197,53 @@ type ScoreFactorResp struct {
 	Source      string `json:"source"`
 }
 
+// CompoundRiskSummary is the shape returned by GET /api/v1/compound-risks list.
+type CompoundRiskSummary struct {
+	ID           string   `json:"id"`
+	RiskCode     string   `json:"risk_code"`
+	Title        string   `json:"title"`
+	Category     string   `json:"category"`
+	Score        int      `json:"score"`
+	Status       string   `json:"status"`
+	Likelihood   string   `json:"likelihood"`
+	Impact       string   `json:"impact"`
+	Narrative    string   `json:"narrative"`
+	Services     []string `json:"linked_services"`
+	ControlCodes []string `json:"control_codes,omitempty"`
+	LastSeenAt   string   `json:"last_seen_at,omitempty"`
+}
+
+// CompoundRuleDetail is the triggering rule in a compound risk detail response.
+type CompoundRuleDetail struct {
+	ID                      string   `json:"id"`
+	Name                    string   `json:"name"`
+	Description             *string  `json:"description,omitempty"`
+	ControlCodes            []string `json:"control_codes"`
+	MinControlCount         int      `json:"min_control_count"`
+	BaseInteractionSeverity int      `json:"base_interaction_severity"`
+	Rationale               *string  `json:"rationale,omitempty"`
+}
+
+// ConstituentRiskSummary is a constituent risk within a compound risk detail.
+type ConstituentRiskSummary struct {
+	ID           string   `json:"id"`
+	RiskCode     string   `json:"risk_code"`
+	Title        string   `json:"title"`
+	Status       string   `json:"status"`
+	ControlCodes []string `json:"control_codes"`
+	Service      string   `json:"service"`
+	Services     []string `json:"services,omitempty"`
+	Score        int      `json:"score"`
+	LastSeenAt   string   `json:"last_seen_at,omitempty"`
+}
+
+// CompoundRiskDetailResponse is the shape returned by GET /api/v1/compound-risks/{id}.
+type CompoundRiskDetailResponse struct {
+	Risk         CompoundRiskSummary      `json:"risk"`
+	Rule         CompoundRuleDetail       `json:"rule"`
+	Constituents []ConstituentRiskSummary `json:"constituents"`
+}
+
 // CmdRisk is the main dispatcher for risk commands
 func CmdRisk(args []string) {
 	if len(args) == 0 {
@@ -254,7 +301,10 @@ Examples:
   rvl risk show R-001
   rvl risk context R-001
   rvl risk resolve R-001
-  rvl risk resolve R-001 --reason "Fixed in deploy 42" --format=json`)
+  rvl risk resolve R-001 --reason "Fixed in deploy 42" --format=json
+  rvl risk show CR-001
+  rvl risk context CR-001
+  rvl risk resolve CR-001`)
 }
 
 // CmdRiskList lists all risks in the register
@@ -511,6 +561,45 @@ func classifyPriority(score int) string {
 	}
 }
 
+// isCompoundCode reports whether code is a compound risk code (CR-XXX prefix).
+func isCompoundCode(code string) bool {
+	return strings.HasPrefix(code, "CR-")
+}
+
+// fetchCompoundRiskDetail looks up a compound risk by its CR-XXX code and
+// returns the full detail response (rule + constituents). It makes two
+// requests: one to list compound risks (to resolve the CR-XXX code to a UUID),
+// then one to fetch the detail.
+func fetchCompoundRiskDetail(cfg *config.Config, code string) (*CompoundRiskDetailResponse, []byte, error) {
+	listBody, err := api.MakeAPIRequest(cfg, "GET", cfg.APIURL+"/api/v1/compound-risks", nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	var list []CompoundRiskSummary
+	if err := json.Unmarshal(listBody, &list); err != nil {
+		return nil, nil, fmt.Errorf("parsing compound risk list: %w", err)
+	}
+	var id string
+	for _, r := range list {
+		if r.RiskCode == code {
+			id = r.ID
+			break
+		}
+	}
+	if id == "" {
+		return nil, nil, fmt.Errorf("compound risk not found: %s (run `rvl risk list` to verify the code)", code)
+	}
+	detailBody, err := api.MakeAPIRequest(cfg, "GET", cfg.APIURL+"/api/v1/compound-risks/"+id, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	var detail CompoundRiskDetailResponse
+	if err := json.Unmarshal(detailBody, &detail); err != nil {
+		return nil, nil, fmt.Errorf("parsing compound risk detail: %w", err)
+	}
+	return &detail, detailBody, nil
+}
+
 // CmdRiskShow shows detailed information about a specific risk
 func CmdRiskShow(args []string) {
 	if len(args) == 0 {
@@ -546,6 +635,21 @@ func CmdRiskShow(args []string) {
 	}
 
 	cfg := api.LoadAndResolveConfig()
+
+	// Compound risks live at /api/v1/compound-risks, not /api/v1/risks.
+	if isCompoundCode(positional[0]) {
+		detail, rawBody, err := fetchCompoundRiskDetail(cfg, positional[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error fetching compound risk: %v\n", err)
+			os.Exit(1)
+		}
+		if format == "json" {
+			fmt.Println(string(rawBody))
+			return
+		}
+		printCompoundRiskShow(detail)
+		return
+	}
 
 	// po-eedub: GET /api/v1/risks/{id} now accepts R-XXX codes
 	// (po-bcs5c), so pass the user's input through directly instead of
@@ -683,6 +787,21 @@ func CmdRiskContext(args []string) {
 	}
 
 	cfg := api.LoadAndResolveConfig()
+
+	// Compound risks live at /api/v1/compound-risks, not /api/v1/risks.
+	if isCompoundCode(positional[0]) {
+		detail, rawBody, err := fetchCompoundRiskDetail(cfg, positional[0])
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error fetching risk context: %v\n", err)
+			os.Exit(1)
+		}
+		if format == "json" {
+			fmt.Println(string(rawBody))
+			return
+		}
+		printCompoundRiskContext(detail)
+		return
+	}
 
 	// po-eedub: GET /api/v1/risks/{id}/context already accepted R-XXX
 	// codes; with po-bcs5c the show path matches, so we can pass the
@@ -922,6 +1041,99 @@ func printRiskContext(ctx RiskContextResponse) {
 	}
 }
 
+func printCompoundRiskShow(d *CompoundRiskDetailResponse) {
+	r := d.Risk
+	fmt.Printf("\nCompound Risk: %s\n", r.RiskCode)
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Printf("Title:    %s\n", r.Title)
+	fmt.Printf("Status:   %s\n", display.FormatStatus(r.Status))
+	fmt.Printf("Category: compound_failure\n")
+	fmt.Printf("Score:    %d (CRITICAL - interaction amplification)\n", r.Score)
+	if len(r.Services) > 0 {
+		fmt.Printf("Services: %s\n", strings.Join(r.Services, ", "))
+	}
+	if r.LastSeenAt != "" {
+		fmt.Printf("Last Seen: %s\n", r.LastSeenAt)
+	}
+
+	fmt.Println("\nTriggering Rule:")
+	fmt.Println(strings.Repeat("-", 80))
+	fmt.Printf("  Name:     %s\n", d.Rule.Name)
+	fmt.Printf("  Controls: %s (min %d matched)\n", strings.Join(d.Rule.ControlCodes, ", "), d.Rule.MinControlCount)
+	if d.Rule.Description != nil && *d.Rule.Description != "" {
+		fmt.Printf("  Why:      %s\n", display.WrapText(*d.Rule.Description, 74, "            "))
+	}
+
+	if r.Narrative != "" {
+		fmt.Println("\nNarrative:")
+		fmt.Println(strings.Repeat("-", 80))
+		fmt.Println(display.WrapText(r.Narrative, 80, ""))
+	}
+
+	if len(d.Constituents) > 0 {
+		fmt.Println("\nConstituent Risks:")
+		fmt.Println(strings.Repeat("-", 80))
+		fmt.Printf("%-10s %-5s %-12s %s\n", "CODE", "SCORE", "STATUS", "TITLE")
+		fmt.Println(strings.Repeat("-", 80))
+		for _, c := range d.Constituents {
+			title := c.Title
+			if len(title) > 52 {
+				title = title[:52] + "..."
+			}
+			fmt.Printf("%-10s %-5d %-12s %s\n", c.RiskCode, c.Score, c.Status, title)
+		}
+	}
+}
+
+func printCompoundRiskContext(d *CompoundRiskDetailResponse) {
+	r := d.Risk
+	fmt.Printf("\nCompound Risk Context: %s\n", r.RiskCode)
+	fmt.Println(strings.Repeat("=", 80))
+	fmt.Printf("Title:    %s\n", r.Title)
+	fmt.Printf("Status:   %s\n", display.FormatStatus(r.Status))
+	fmt.Printf("Score:    %d (CRITICAL - interaction amplification)\n", r.Score)
+	if len(r.Services) > 0 {
+		fmt.Printf("Services: %s\n", strings.Join(r.Services, ", "))
+	}
+
+	fmt.Println("\nTriggering Rule:")
+	fmt.Println(strings.Repeat("-", 80))
+	fmt.Printf("  Name:            %s\n", d.Rule.Name)
+	fmt.Printf("  Control Pattern: %s\n", strings.Join(d.Rule.ControlCodes, ", "))
+	fmt.Printf("  Minimum Matched: %d of %d controls\n", d.Rule.MinControlCount, len(d.Rule.ControlCodes))
+	if d.Rule.Rationale != nil && *d.Rule.Rationale != "" {
+		fmt.Println("\n  Rationale:")
+		fmt.Printf("  %s\n", display.WrapText(*d.Rule.Rationale, 76, "  "))
+	}
+
+	if r.Narrative != "" {
+		fmt.Println("\nNarrative:")
+		fmt.Println(strings.Repeat("-", 80))
+		fmt.Println(display.WrapText(r.Narrative, 80, ""))
+	}
+
+	if len(d.Constituents) > 0 {
+		fmt.Println("\nConstituent Risks (all must be addressed to clear this compound risk):")
+		fmt.Println(strings.Repeat("-", 80))
+		fmt.Printf("%-10s %-5s %-15s %s\n", "CODE", "SCORE", "CONTROLS", "TITLE")
+		fmt.Println(strings.Repeat("-", 80))
+		for _, c := range d.Constituents {
+			title := c.Title
+			if len(title) > 48 {
+				title = title[:48] + "..."
+			}
+			controls := strings.Join(c.ControlCodes, ", ")
+			if len(controls) > 15 {
+				controls = controls[:14] + "+"
+			}
+			fmt.Printf("%-10s %-5d %-15s %s\n", c.RiskCode, c.Score, controls, title)
+		}
+		fmt.Println()
+		fmt.Println("  Tip: run `rvl risk context <R-XXX>` on any constituent for full remediation context.")
+		fmt.Printf("  Tip: run `rvl risk resolve %s` to resolve all applicable constituents.\n", r.RiskCode)
+	}
+}
+
 // CmdRiskStale lists risks marked as stale
 func CmdRiskStale(args []string) {
 	cfg := api.LoadAndResolveConfig()
@@ -986,6 +1198,33 @@ func CmdRiskResolve(args []string) {
 		case strings.HasPrefix(args[i], "--format="):
 			format = strings.TrimPrefix(args[i], "--format=")
 		}
+	}
+
+	// Compound risks auto-resolve when all constituent R-XXX risks are mitigated.
+	// Resolve each applicable constituent individually.
+	if isCompoundCode(riskCode) {
+		detail, _, err := fetchCompoundRiskDetail(cfg, riskCode)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error fetching compound risk: %v\n", err)
+			os.Exit(1)
+		}
+		resolved := 0
+		for _, c := range detail.Constituents {
+			if c.Status != "applicable" {
+				continue
+			}
+			cEndpoint := cfg.APIURL + "/api/v1/risks/" + url.PathEscape(c.RiskCode) + "/resolve"
+			cBody, _ := json.Marshal(map[string]string{"reason": reason})
+			if _, cErr := api.MakeAPIRequest(cfg, "POST", cEndpoint, cBody); cErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to resolve %s: %v\n", c.RiskCode, cErr)
+			} else {
+				fmt.Printf("  Resolved constituent: %s - %s\n", c.RiskCode, c.Title)
+				resolved++
+			}
+		}
+		fmt.Printf("\nResolved %d of %d constituents for %s.\n", resolved, len(detail.Constituents), riskCode)
+		fmt.Println("The compound risk will auto-resolve when all applicable constituents are mitigated.")
+		return
 	}
 
 	riskID, err := FindRiskIDByCode(cfg, riskCode)
