@@ -322,7 +322,12 @@ func CmdInit(args []string) {
 	}
 	fmt.Println()
 
-	// Step 7: Print summary
+	// Step 7: Record onboarding milestone (best-effort, fire-and-forget)
+	if credentialsConfigured {
+		api.PostOnboardingMilestone(loginCfg, "cli_init")
+	}
+
+	// Step 8: Print summary
 	printInitSummary(cfg, pluginInstalled, pluginVersion, credentialsConfigured, agentsMdAction)
 }
 

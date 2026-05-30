@@ -264,6 +264,37 @@ func FetchServerPluginVersion(cfg *config.Config) string {
 	return result.Version
 }
 
+// PostOnboardingMilestone records an onboarding milestone via the Polaris API.
+// This is fire-and-forget: errors are silently discarded so callers are never
+// blocked or shown a failure on behalf of a telemetry-style call.
+func PostOnboardingMilestone(cfg *config.Config, milestone string) {
+	if cfg == nil || cfg.APIKey == "" || cfg.APIURL == "" {
+		return
+	}
+
+	payload, err := json.Marshal(map[string]string{"milestone": milestone})
+	if err != nil {
+		return
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest("POST", cfg.APIURL+"/api/v1/onboarding/milestone", bytes.NewReader(payload))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	if cfg.ResolvedOrgID != "" {
+		req.Header.Set("X-Organization-ID", cfg.ResolvedOrgID)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	resp.Body.Close()
+}
+
 // FetchLatestCLIVersion queries GitHub releases for the latest CLI version.
 // Returns the version string (e.g., "0.7.4") or empty string on error.
 func FetchLatestCLIVersion() string {
