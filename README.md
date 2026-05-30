@@ -35,7 +35,7 @@ After `rvl init` (or `rvl plugin install claude`), the following slash commands 
 
 | Command | Description |
 |---------|-------------|
-| `/rvl:detect-risks` | Multi-agent scan with expert agents, auto-chains to analyze |
+| `/rvl:scan` | Multi-agent scan with expert agents, auto-chains to analyze |
 | `/rvl:analyze-risks` | Correlate with incidents, enrich with knowledge, score risks (auto-invoked) |
 | `/rvl:remediate-risks R-XXX` | Generate plan, apply fixes, submit evidence, resolve risk |
 

@@ -36,6 +36,11 @@ type EditorDef struct {
 	// Empty means detection relies on binary check only.
 	ConfigDir string
 
+	// RequireConfigDir, when true, means detection requires BOTH the CLI binary
+	// on PATH and the config directory to exist. Use for editors where the binary
+	// name is commonly reused by other tools (e.g., "goose").
+	RequireConfigDir bool
+
 	// LocalDir is the path relative to the project root for --project installs.
 	// Empty means --project is not supported for this editor.
 	LocalDir string
@@ -218,13 +223,14 @@ var Registry = map[string]EditorDef{
 		},
 	},
 	"goose": {
-		Name:        "goose",
-		DisplayName: "Goose",
-		Binary:      "goose",
-		Tier:        3,
-		InstallDir:  ".config/goose/skills",
-		ConfigDir:   ".config/goose",
-		LocalDir:    ".goose/skills",
+		Name:             "goose",
+		DisplayName:      "Goose",
+		Binary:           "goose",
+		RequireConfigDir: true, // "goose" is a common binary name; require config dir to confirm it's Goose AI
+		Tier:             3,
+		InstallDir:       ".config/goose/skills",
+		ConfigDir:        ".config/goose",
+		LocalDir:         ".goose/skills",
 		Instructions: []string{
 			"Skills are auto-discovered by Goose.",
 			"Try: \"scan this codebase for reliability risks\"",
@@ -415,8 +421,27 @@ func EditorsByTier() (custom, universal []EditorInfo) {
 
 // isEditorDetected returns true if the editor is present on this machine.
 // Detection passes if the CLI binary is on PATH or the config directory exists.
+// When RequireConfigDir is true, both the binary and the config directory must be present.
 func isEditorDetected(def EditorDef) bool {
-	if IsEditorAvailable(def.Binary) {
+	binaryFound := IsEditorAvailable(def.Binary)
+
+	if def.RequireConfigDir {
+		// Both binary AND config dir required
+		if !binaryFound {
+			return false
+		}
+		if def.ConfigDir == "" {
+			return false
+		}
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return false
+		}
+		_, err = os.Stat(filepath.Join(home, def.ConfigDir))
+		return err == nil
+	}
+
+	if binaryFound {
 		return true
 	}
 	if def.ConfigDir != "" {

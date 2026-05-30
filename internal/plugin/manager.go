@@ -305,7 +305,7 @@ func UpdatePlugin(editor string) error {
 func listEditors() {
 	custom, universal := EditorsByTier()
 
-	fmt.Println("Custom integrations (editor-specific install):")
+	fmt.Println("Custom integrations (agent-specific install):")
 	for _, e := range custom {
 		fmt.Fprintf(os.Stdout, "  %-14s %s\n", e.Name, e.DisplayName)
 	}
@@ -330,7 +330,7 @@ func ListInstalledPlugins() {
 	if len(plugins) == 0 {
 		fmt.Println("No Revelara plugins installed.")
 		fmt.Println("\nTo install:")
-		fmt.Println("  rvl plugin install <editor>")
+		fmt.Println("  rvl plugin install <agent>")
 		fmt.Printf("  Available: %s\n", EditorNames())
 		return
 	}
@@ -702,13 +702,13 @@ func PrintPostInstallInstructions(editor, location string) {
 func installAll(projectRoot string) {
 	editors := DetectInstalled()
 	if len(editors) == 0 {
-		fmt.Println("No supported editors detected.")
+		fmt.Println("No supported AI coding agents detected.")
 		fmt.Printf("Supported: %s\n", EditorNames())
-		fmt.Println("\nInstall an editor CLI, then run: rvl plugin install --all")
+		fmt.Println("\nInstall an AI coding agent, then run: rvl plugin install --all")
 		return
 	}
 
-	fmt.Printf("Detected %d editor(s): %s\n\n", len(editors), strings.Join(editors, ", "))
+	fmt.Printf("Detected %d AI coding agent(s): %s\n\n", len(editors), strings.Join(editors, ", "))
 
 	var succeeded, failed, skipped int
 	for _, editor := range editors {
@@ -745,7 +745,7 @@ func CmdPlugin(args []string) {
 	editorList := EditorNames()
 
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: rvl plugin <command>\n\nCommands:\n  install <editor>            Install skills for editor (%s)\n  install <editor> --project  Install to current project directory\n  install --all               Auto-detect and install to all editors\n  install --all --project     Auto-detect and install project-locally\n  update [editor]             Update skills to latest version\n  update --all                Update all installed plugins\n  list                        List installed skills\n  agents [--editor=NAME]      List installed agent lenses (default editor: claude)\n  editors                     List all supported editors\n  remove <editor>             Remove installed skills\n  remove <editor> --project   Remove project-local skills\n\nExamples:\n  rvl plugin install claude         Install Claude Code plugin\n  rvl plugin install gemini --project  Install to project directory\n  rvl plugin install --all          Install to all detected editors\n  rvl plugin update                 Update all installed plugins\n  rvl plugin agents --json          List installed lenses as JSON (used by /rvl:scan)\n  rvl plugin editors                Show all supported editors\n  rvl plugin list                   Show installed plugins\n", editorList)
+		fmt.Fprintf(os.Stderr, "Usage: rvl plugin <command>\n\nCommands:\n  install <agent>             Install skills for agent (%s)\n  install <agent> --project   Install to current project directory\n  install --all               Auto-detect and install to all agents\n  install --all --project     Auto-detect and install project-locally\n  update [agent]              Update skills to latest version\n  update --all                Update all installed plugins\n  list                        List installed skills\n  agents [--editor=NAME]      List installed agent lenses (default: claude)\n  editors                     List all supported agents\n  remove <agent>              Remove installed skills\n  remove <agent> --project    Remove project-local skills\n\nExamples:\n  rvl plugin install claude         Install Claude Code plugin\n  rvl plugin install gemini --project  Install to project directory\n  rvl plugin install --all          Install to all detected agents\n  rvl plugin update                 Update all installed plugins\n  rvl plugin agents --json          List installed lenses as JSON (used by /rvl:scan)\n  rvl plugin editors                Show all supported agents\n  rvl plugin list                   Show installed plugins\n", editorList)
 		os.Exit(1)
 	}
 
@@ -766,8 +766,8 @@ func CmdPlugin(args []string) {
 	switch args[0] {
 	case "install":
 		if len(subArgs) < 1 {
-			fmt.Fprintln(os.Stderr, "Error: editor name required")
-			fmt.Fprintln(os.Stderr, "Usage: rvl plugin install <editor> [--project]")
+			fmt.Fprintln(os.Stderr, "Error: agent name required")
+			fmt.Fprintln(os.Stderr, "Usage: rvl plugin install <agent> [--project]")
 			fmt.Fprintln(os.Stderr, "       rvl plugin install --all [--project]")
 			fmt.Fprintf(os.Stderr, "Available: %s\n", editorList)
 			os.Exit(1)
@@ -798,8 +798,8 @@ func CmdPlugin(args []string) {
 		listEditors()
 	case "remove", "uninstall":
 		if len(subArgs) < 1 {
-			fmt.Fprintln(os.Stderr, "Error: editor name required")
-			fmt.Fprintln(os.Stderr, "Usage: rvl plugin remove <editor> [--project]")
+			fmt.Fprintln(os.Stderr, "Error: agent name required")
+			fmt.Fprintln(os.Stderr, "Usage: rvl plugin remove <agent> [--project]")
 			os.Exit(1)
 		}
 		editor := subArgs[0]

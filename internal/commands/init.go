@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -97,8 +98,8 @@ func CmdInit(args []string) {
 	gitRoot := project.DetectGitRoot()
 	if gitRoot == "" {
 		fmt.Fprintln(os.Stderr, "Error: not a git repository.")
-		fmt.Fprintln(os.Stderr, "Revelara must be initialized inside a git repository.")
-		fmt.Fprintln(os.Stderr, "Run 'git init' first, then try again.")
+		fmt.Fprintln(os.Stderr, "Revelara reads your git repository to detect project structure and service names.")
+		fmt.Fprintln(os.Stderr, "Navigate to a git repository or run 'git init' here first.")
 		os.Exit(1)
 	}
 
@@ -131,7 +132,16 @@ func CmdInit(args []string) {
 
 	var cfg *project.ProjectConfig
 	if writeConfig {
-		cfg = buildProjectConfig(gitRoot, projectName, yesAll)
+		var buildErr error
+		cfg, buildErr = buildProjectConfig(gitRoot, projectName, yesAll)
+		if buildErr != nil {
+			if errors.Is(buildErr, huh.ErrUserAborted) {
+				fmt.Println("Cancelled. No files written.")
+				return
+			}
+			fmt.Fprintf(os.Stderr, "Error: %v\n", buildErr)
+			os.Exit(1)
+		}
 		if err := project.WriteProjectConfig(configPath, cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing .revelara.yaml: %v\n", err)
 			os.Exit(1)
@@ -180,9 +190,9 @@ func CmdInit(args []string) {
 		detectedEditors := plugin.DetectInstalled()
 
 		if len(detectedEditors) == 0 {
-			fmt.Println("Skills: No supported editors detected on PATH")
+			fmt.Println("Skills: No supported AI coding agents detected on PATH")
 			fmt.Printf("  Supported: %s\n", plugin.EditorNames())
-			fmt.Println("  Install an editor, then run: rvl plugin install <editor>")
+			fmt.Println("  Install an AI coding agent, then run: rvl plugin install <agent>")
 		}
 
 		for _, editorName := range detectedEditors {
@@ -316,8 +326,9 @@ func CmdInit(args []string) {
 	printInitSummary(cfg, pluginInstalled, pluginVersion, credentialsConfigured, agentsMdAction)
 }
 
-// buildProjectConfig creates a ProjectConfig interactively or from defaults
-func buildProjectConfig(gitRoot, projectName string, yesAll bool) *project.ProjectConfig {
+// buildProjectConfig creates a ProjectConfig interactively or from defaults.
+// Returns (nil, huh.ErrUserAborted) if the user pressed Ctrl-C.
+func buildProjectConfig(gitRoot, projectName string, yesAll bool) (*project.ProjectConfig, error) {
 	// Auto-detect project name
 	if projectName == "" {
 		projectName = project.DetectProjectName(gitRoot)
@@ -330,7 +341,7 @@ func buildProjectConfig(gitRoot, projectName string, yesAll bool) *project.Proje
 		if len(components) == 0 {
 			components = []project.ProjectComponent{{Name: projectName, Path: "."}}
 		}
-		return &project.ProjectConfig{Project: projectName, Components: components}
+		return &project.ProjectConfig{Project: projectName, Components: components}, nil
 	}
 
 	// Interactive: prompt for project name
@@ -339,8 +350,7 @@ func buildProjectConfig(gitRoot, projectName string, yesAll bool) *project.Proje
 		Value(&projectName).
 		Run()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return nil, err
 	}
 
 	// Show detected components
@@ -359,39 +369,56 @@ func buildProjectConfig(gitRoot, projectName string, yesAll bool) *project.Proje
 			Value(&accept).
 			Run()
 		if err != nil {
-			os.Exit(1)
+			return nil, err
 		}
 
 		if !accept {
-			components = promptComponents()
+			var promptErr error
+			components, promptErr = promptComponents()
+			if promptErr != nil {
+				return nil, promptErr
+			}
 		}
 	} else {
 		fmt.Println("No components auto-detected.")
 		fmt.Println()
 
+		fmt.Println("A component is a subdirectory Revelara analyzes as a separate service (e.g., api/, worker/).")
+		fmt.Println("For a single-service repository, choose 'No' to treat the whole repo as one project.")
+		fmt.Println()
+
 		var addManual bool
 		err := huh.NewConfirm().
 			Title("Add components manually?").
-			Affirmative("Yes").
-			Negative("No, use project root").
+			Affirmative("Yes, add components").
+			Negative("No — treat whole repo as one project").
 			Value(&addManual).
 			Run()
 		if err != nil {
-			os.Exit(1)
+			return nil, err
 		}
 
 		if addManual {
-			components = promptComponents()
+			var promptErr error
+			components, promptErr = promptComponents()
+			if promptErr != nil {
+				return nil, promptErr
+			}
 		} else {
 			components = []project.ProjectComponent{{Name: projectName, Path: "."}}
 		}
 	}
 
-	return &project.ProjectConfig{Project: projectName, Components: components}
+	return &project.ProjectConfig{Project: projectName, Components: components}, nil
 }
 
-// promptComponents interactively collects component definitions
-func promptComponents() []project.ProjectComponent {
+// promptComponents interactively collects component definitions.
+// Returns (nil, huh.ErrUserAborted) if the user pressed Ctrl-C.
+func promptComponents() ([]project.ProjectComponent, error) {
+	fmt.Println("Enter a name and relative path for each component.")
+	fmt.Println("Example: name=api, path=api/")
+	fmt.Println()
+
 	var components []project.ProjectComponent
 	for {
 		var name, path string
@@ -407,6 +434,9 @@ func promptComponents() []project.ProjectComponent {
 			),
 		).Run()
 		if err != nil {
+			if errors.Is(err, huh.ErrUserAborted) {
+				return nil, err
+			}
 			break
 		}
 
@@ -429,11 +459,17 @@ func promptComponents() []project.ProjectComponent {
 			Negative("Done").
 			Value(&addMore).
 			Run()
-		if err != nil || !addMore {
+		if err != nil {
+			if errors.Is(err, huh.ErrUserAborted) {
+				return nil, err
+			}
+			break
+		}
+		if !addMore {
 			break
 		}
 	}
-	return components
+	return components, nil
 }
 
 // EnsureAgentsMd creates or updates AGENTS.md with Revelara sections
@@ -568,5 +604,5 @@ func printInitSummary(cfg *project.ProjectConfig, pluginInstalled bool, pluginVe
 		fmt.Println("  1. rvl plugin install claude")
 	}
 	fmt.Println("  - Commit .revelara.yaml and AGENTS.md to your repository")
-	fmt.Println("  - Use /rvl:detect-risks to scan for reliability risks")
+	fmt.Println("  - Open Claude Code in this directory and run /rvl:scan to scan for reliability risks")
 }

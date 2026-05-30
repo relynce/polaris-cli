@@ -117,7 +117,7 @@ components:
 Scan your codebase to identify potential reliability issues:
 
 ```
-/rvl:detect-risks
+/rvl:scan
 ```
 
 This runs a full scan and saves findings to the risk register. The service name is auto-detected from your `.revelara.yaml`.
@@ -125,7 +125,7 @@ This runs a full scan and saves findings to the risk register. The service name 
 You can also scan a different project from your current session:
 
 ```
-/rvl:detect-risks /path/to/other-project
+/rvl:scan /path/to/other-project
 ```
 
 For a quick read-only assessment without saving results:
@@ -172,7 +172,7 @@ Or visit the **Risks** tab in the web UI to browse the full risk register and se
 
 | Skill | Description |
 |-------|-------------|
-| `/rvl:detect-risks [service or path]` | Full codebase scan, saves risks to the register |
+| `/rvl:scan [service or path]` | Full codebase scan, saves risks to the register |
 | `/rvl:risk-check <service>` | Quick assessment without saving results |
 | `/rvl:control-guidance RC-XXX` | Implementation guidance for a specific control |
 | `/rvl:reliability-review` | Analyze your git diff for reliability issues |
@@ -205,7 +205,7 @@ Run `rvl init` to install skills. If you've already run init, try `rvl init --fo
 
 ## Next Steps
 
-1. **Run Your First Scan** — Run `/rvl:detect-risks` on one of your team's services. This populates the risk register and compliance dashboards.
+1. **Run Your First Scan** — Open Claude Code and run `/rvl:scan` on one of your team's services. This populates the risk register and compliance dashboards.
 
 2. **Upload Your Postmortems** — Go to Documents and upload your team's incident reports and RCAs.
 

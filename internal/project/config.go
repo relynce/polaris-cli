@@ -182,6 +182,6 @@ func WriteProjectConfig(path string, cfg *ProjectConfig) error {
 		return err
 	}
 
-	header := "# Revelara project configuration\n# Used by detect-risks and reliability-review skills for consistent service naming\n"
+	header := "# Revelara project configuration\n# Used by /rvl:scan and reliability-review skills for consistent service naming\n"
 	return os.WriteFile(path, []byte(header+string(data)), 0644)
 }

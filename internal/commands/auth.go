@@ -235,7 +235,7 @@ func CmdStatus(version, gitHash string) {
 	plugins, err := plugin.GetInstalledPlugins()
 	if err != nil || len(plugins) == 0 {
 		fmt.Println("  No plugins installed")
-		fmt.Println("  Run 'rvl plugin install <editor>' to install")
+		fmt.Println("  Run 'rvl plugin install <agent>' to install")
 		fmt.Println("  Available: claude, codex, gemini, cursor, windsurf, copilot, augment")
 	} else {
 		for _, p := range plugins {
