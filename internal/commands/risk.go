@@ -263,27 +263,23 @@ func CmdRiskList(args []string) {
 
 	var statusFilter, categoryFilter, serviceFilter, format string
 	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--status":
-			if i+1 < len(args) {
-				statusFilter = args[i+1]
-				i++
-			}
-		case "--category":
-			if i+1 < len(args) {
-				categoryFilter = args[i+1]
-				i++
-			}
-		case "--service":
-			if i+1 < len(args) {
-				serviceFilter = args[i+1]
-				i++
-			}
-		case "--format":
-			if i+1 < len(args) {
-				format = args[i+1]
-				i++
-			}
+		switch {
+		case args[i] == "--status" && i+1 < len(args):
+			statusFilter = args[i+1]; i++
+		case strings.HasPrefix(args[i], "--status="):
+			statusFilter = strings.TrimPrefix(args[i], "--status=")
+		case args[i] == "--category" && i+1 < len(args):
+			categoryFilter = args[i+1]; i++
+		case strings.HasPrefix(args[i], "--category="):
+			categoryFilter = strings.TrimPrefix(args[i], "--category=")
+		case args[i] == "--service" && i+1 < len(args):
+			serviceFilter = args[i+1]; i++
+		case strings.HasPrefix(args[i], "--service="):
+			serviceFilter = strings.TrimPrefix(args[i], "--service=")
+		case args[i] == "--format" && i+1 < len(args):
+			format = args[i+1]; i++
+		case strings.HasPrefix(args[i], "--format="):
+			format = strings.TrimPrefix(args[i], "--format=")
 		}
 	}
 
@@ -360,35 +356,36 @@ func CmdRiskReady(args []string) {
 	var categoryFilter, serviceFilter, format string
 	limit := 10
 	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--category":
-			if i+1 < len(args) {
-				categoryFilter = args[i+1]
-				i++
+		switch {
+		case args[i] == "--category" && i+1 < len(args):
+			categoryFilter = args[i+1]; i++
+		case strings.HasPrefix(args[i], "--category="):
+			categoryFilter = strings.TrimPrefix(args[i], "--category=")
+		case args[i] == "--service" && i+1 < len(args):
+			serviceFilter = args[i+1]; i++
+		case strings.HasPrefix(args[i], "--service="):
+			serviceFilter = strings.TrimPrefix(args[i], "--service=")
+		case args[i] == "--limit" && i+1 < len(args):
+			// po-hu71i: reject non-numeric / non-positive --limit
+			// with a clear error rather than silently falling back
+			// to the default. Typos used to be invisible.
+			n, perr := strconv.Atoi(args[i+1])
+			if perr != nil || n < 1 {
+				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", args[i+1])
+				os.Exit(1)
 			}
-		case "--service":
-			if i+1 < len(args) {
-				serviceFilter = args[i+1]
-				i++
+			limit = n; i++
+		case strings.HasPrefix(args[i], "--limit="):
+			n, perr := strconv.Atoi(strings.TrimPrefix(args[i], "--limit="))
+			if perr != nil || n < 1 {
+				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", strings.TrimPrefix(args[i], "--limit="))
+				os.Exit(1)
 			}
-		case "--limit":
-			if i+1 < len(args) {
-				// po-hu71i: reject non-numeric / non-positive --limit
-				// with a clear error rather than silently falling back
-				// to the default. Typos used to be invisible.
-				n, perr := strconv.Atoi(args[i+1])
-				if perr != nil || n < 1 {
-					fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", args[i+1])
-					os.Exit(1)
-				}
-				limit = n
-				i++
-			}
-		case "--format":
-			if i+1 < len(args) {
-				format = args[i+1]
-				i++
-			}
+			limit = n
+		case args[i] == "--format" && i+1 < len(args):
+			format = args[i+1]; i++
+		case strings.HasPrefix(args[i], "--format="):
+			format = strings.TrimPrefix(args[i], "--format=")
 		}
 	}
 
