@@ -44,3 +44,38 @@ release:
     name: rvl-cli
   draft: false
   prerelease: auto
+
+# Homebrew distribution via a self-hosted tap. `brews:` (formula) is deprecated
+# as of goreleaser v2.10 in favour of `homebrew_casks:`, so we use casks here.
+# Install: `brew install revelara-ai/tap/rvl`.
+#
+# Requires a HOMEBREW_TAP_TOKEN secret (a PAT with contents:write on
+# revelara-ai/homebrew-tap) exported into the release job env — the default
+# GITHUB_TOKEN only has access to this repo, not the tap.
+homebrew_casks:
+  - name: rvl
+    binaries:
+      - rvl
+    repository:
+      owner: revelara-ai
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Casks
+    homepage: "https://revelara.ai"
+    description: "Revelara CLI — scan your codebase for reliability risks"
+    commit_author:
+      name: revelara-release-bot
+      email: release@revelara.ai
+    commit_msg_template: "brew: rvl {{ .Tag }}"
+    # Skip publishing the cask for pre-releases (prerelease: auto above).
+    skip_upload: auto
+    # The CLI binary is not Apple-notarised. Strip the Gatekeeper quarantine
+    # attribute on install so `rvl` runs without a "developer cannot be
+    # verified" block. No-op on Linux brew.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/rvl"]
+          end

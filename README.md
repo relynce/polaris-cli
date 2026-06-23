@@ -4,15 +4,23 @@ Connect your codebase to the [Revelara](https://dev.revelara.ai) reliability ris
 
 ## Install
 
+**Homebrew (macOS, recommended):**
+
+```bash
+brew install revelara-ai/tap/rvl
+```
+
+Upgrade later with `brew upgrade rvl`. No Go toolchain required.
+
+**From release binary (Linux/macOS/Windows):**
+
+Download the archive for your platform from [Releases](https://github.com/revelara-ai/rvl-cli/releases), extract it, and put `rvl` on your `PATH`.
+
 **From source (requires Go 1.25+):**
 
 ```bash
 go install github.com/revelara-ai/rvl-cli/cmd/rvl@latest
 ```
-
-**From release binary:**
-
-Download from [Releases](https://github.com/revelara-ai/rvl-cli/releases) for your platform.
 
 ## Quick Start
 
