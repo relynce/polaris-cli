@@ -5,6 +5,7 @@ go 1.25
 require (
 	github.com/charmbracelet/glamour v1.0.0
 	github.com/charmbracelet/huh v0.8.0
+	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	golang.org/x/term v0.36.0
 	golang.org/x/text v0.30.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -19,7 +20,6 @@ require (
 	github.com/charmbracelet/bubbles v0.21.1-0.20250623103423-23b8fd6302d7 // indirect
 	github.com/charmbracelet/bubbletea v1.3.6 // indirect
 	github.com/charmbracelet/colorprofile v0.2.3-0.20250311203215-f60798e515dc // indirect
-	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834 // indirect
 	github.com/charmbracelet/x/ansi v0.10.2 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13 // indirect
 	github.com/charmbracelet/x/exp/slice v0.0.0-20250327172914-2fdc97757edf // indirect

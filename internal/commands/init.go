@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/revelara-ai/rvl-cli/internal/api"
 	"github.com/revelara-ai/rvl-cli/internal/config"
 	"github.com/revelara-ai/rvl-cli/internal/plugin"
@@ -33,6 +34,21 @@ This project uses Revelara for reliability risk analysis. The following skills a
 - Run ` + "`rvl risk show <code>`" + ` for risk details with mapped controls
 - Run ` + "`rvl control show <code>`" + ` for control implementation guidance
 `
+
+// huhTheme is the shared high-contrast theme for every interactive prompt
+// (po-bs7jx). huh's default (ThemeCharm) renders the focused button as
+// near-white text on a fuchsia/pink background (cream on #F780E2) — the
+// low-contrast "white on pink" the init wizard was flagged for. We base on
+// ThemeBase16 (terminal-adaptive ANSI colors) and force the focused button to
+// black-on-light-gray so the active choice is always legible.
+var huhTheme = func() *huh.Theme {
+	t := huh.ThemeBase16()
+	t.Focused.FocusedButton = t.Focused.FocusedButton.
+		Foreground(lipgloss.Color("0")).
+		Background(lipgloss.Color("7")).
+		Bold(true)
+	return t
+}()
 
 func printInitUsage() {
 	fmt.Println(`rvl init - Initialize Revelara for this repository
@@ -122,6 +138,7 @@ func CmdInit(args []string) {
 				Affirmative("Yes").
 				Negative("No").
 				Value(&overwrite).
+				WithTheme(huhTheme).
 				Run()
 			if err != nil || !overwrite {
 				writeConfig = false
@@ -208,6 +225,7 @@ func CmdInit(args []string) {
 							Affirmative("Yes").
 							Negative("No").
 							Value(&doUpdate).
+							WithTheme(huhTheme).
 							Run()
 						if err != nil {
 							doUpdate = false
@@ -239,6 +257,7 @@ func CmdInit(args []string) {
 						Affirmative("Yes").
 						Negative("No").
 						Value(&doInstall).
+						WithTheme(huhTheme).
 						Run()
 					if err != nil {
 						doInstall = false
@@ -322,9 +341,14 @@ func CmdInit(args []string) {
 	}
 	fmt.Println()
 
-	// Step 7: Record onboarding milestone (best-effort, fire-and-forget)
+	// Step 7: Record onboarding milestone (best-effort, fire-and-forget).
+	// po-vfzc0: the backend tracks this as "cli_setup" (it counts toward the
+	// "Set up the Revelara CLI" onboarding step). Posting the old "cli_init"
+	// name was silently rejected as an invalid milestone, so step 2 never
+	// completed from CLI usage. The server still aliases cli_init -> cli_setup
+	// for older builds.
 	if credentialsConfigured {
-		api.PostOnboardingMilestone(loginCfg, "cli_init")
+		api.PostOnboardingMilestone(loginCfg, "cli_setup")
 	}
 
 	// Step 8: Print summary
@@ -353,6 +377,7 @@ func buildProjectConfig(gitRoot, projectName string, yesAll bool) (*project.Proj
 	err := huh.NewInput().
 		Title("Project name").
 		Value(&projectName).
+		WithTheme(huhTheme).
 		Run()
 	if err != nil {
 		return nil, err
@@ -372,6 +397,7 @@ func buildProjectConfig(gitRoot, projectName string, yesAll bool) (*project.Proj
 			Affirmative("Yes").
 			Negative("No, let me edit").
 			Value(&accept).
+			WithTheme(huhTheme).
 			Run()
 		if err != nil {
 			return nil, err
@@ -398,6 +424,7 @@ func buildProjectConfig(gitRoot, projectName string, yesAll bool) (*project.Proj
 			Affirmative("Yes, add components").
 			Negative("No — treat whole repo as one project").
 			Value(&addManual).
+			WithTheme(huhTheme).
 			Run()
 		if err != nil {
 			return nil, err
@@ -437,7 +464,7 @@ func promptComponents() ([]project.ProjectComponent, error) {
 					Title("Component path (relative to repo root)").
 					Value(&path),
 			),
-		).Run()
+		).WithTheme(huhTheme).Run()
 		if err != nil {
 			if errors.Is(err, huh.ErrUserAborted) {
 				return nil, err
@@ -463,6 +490,7 @@ func promptComponents() ([]project.ProjectComponent, error) {
 			Affirmative("Yes").
 			Negative("Done").
 			Value(&addMore).
+			WithTheme(huhTheme).
 			Run()
 		if err != nil {
 			if errors.Is(err, huh.ErrUserAborted) {
@@ -506,6 +534,7 @@ func EnsureAgentsMd(gitRoot string, force, yesAll bool) (string, error) {
 				Affirmative("Yes").
 				Negative("No").
 				Value(&shouldAppend).
+				WithTheme(huhTheme).
 				Run()
 			if err != nil {
 				return "skipped", nil
@@ -536,6 +565,7 @@ func EnsureAgentsMd(gitRoot string, force, yesAll bool) (string, error) {
 			Affirmative("Yes").
 			Negative("No").
 			Value(&shouldUpdate).
+			WithTheme(huhTheme).
 			Run()
 		if err != nil {
 			return "skipped", nil
