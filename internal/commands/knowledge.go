@@ -29,6 +29,13 @@ type KnowledgeSearchResult struct {
 	Vertical   string  `json:"vertical,omitempty"`
 	Similarity float64 `json:"similarity,omitempty"`
 	Confidence float64 `json:"confidence,omitempty"`
+
+	// Practice grading: present for graded procedure/pattern hits when the Polaris
+	// org has practice_grounding_v1 on. Optional , absent on older Polaris (back-compat:
+	// no grade rendered, no error). Epic po-7s368.
+	PracticeClass string   `json:"practice_class,omitempty"` // best | good | emerging
+	Consensus     string   `json:"consensus,omitempty"`      // settled | contested | experimental
+	Sources       []string `json:"sources,omitempty"`        // grounding citation URLs
 }
 
 // KnowledgeSearchResponse represents the search API response
@@ -333,7 +340,7 @@ Examples:
 func cmdKnowledgeSearch(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Error: search query required")
-		fmt.Fprintln(os.Stderr, "Usage: rvl knowledge search <query> [--limit=N] [--offset=N] [--format=json]")
+		fmt.Fprintln(os.Stderr, "Usage: rvl knowledge search <query> [--limit=N] [--offset=N] [--min-class=best|good|emerging] [--format=json]")
 		os.Exit(1)
 	}
 
@@ -346,10 +353,19 @@ func cmdKnowledgeSearch(args []string) {
 		format     string
 		limit      = 20
 		offset     = 0
+		minClass   string
 	)
 
 	for _, arg := range args {
 		switch {
+		case strings.HasPrefix(arg, "--min-class="):
+			minClass = strings.TrimPrefix(arg, "--min-class=")
+			switch minClass {
+			case "best", "good", "emerging":
+			default:
+				fmt.Fprintf(os.Stderr, "Error: --min-class expects best, good, or emerging, got %q\n", minClass)
+				os.Exit(1)
+			}
 		case strings.HasPrefix(arg, "--limit="):
 			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
 			if perr != nil || n < 1 {
@@ -388,6 +404,9 @@ func cmdKnowledgeSearch(args []string) {
 	bodyBytes, _ := json.Marshal(body)
 
 	endpoint := cfg.APIURL + "/api/knowledge/search"
+	if minClass != "" {
+		endpoint += "?min_class=" + url.QueryEscape(minClass)
+	}
 	resp, err := api.MakeAPIRequest(cfg, "POST", endpoint, bodyBytes)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -418,6 +437,16 @@ func cmdKnowledgeSearch(args []string) {
 			title = display.TruncateText(r.Content, 80)
 		}
 		fmt.Printf("  %-12s %s %s\n", r.ID, typeBadge, title)
+		if r.PracticeClass != "" {
+			line := "               Practice: " + strings.ToUpper(r.PracticeClass)
+			if r.Consensus != "" {
+				line += " (" + r.Consensus + ")"
+			}
+			if n := len(r.Sources); n > 0 {
+				line += fmt.Sprintf("  %d source(s)", n)
+			}
+			fmt.Println(line)
+		}
 		if r.Similarity > 0 {
 			fmt.Printf("               Similarity: %.2f  Vertical: %s\n", r.Similarity, r.Vertical)
 		}
