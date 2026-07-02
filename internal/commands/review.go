@@ -76,7 +76,7 @@ func CmdReview(args []string) {
 		case args[i] == "--commit":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --commit requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			commitSHA = args[i]
@@ -85,7 +85,7 @@ func CmdReview(args []string) {
 		case args[i] == "--base":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --base requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			baseRef = args[i]
@@ -94,7 +94,7 @@ func CmdReview(args []string) {
 		case args[i] == "--env":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --env requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			environment = args[i]
@@ -103,7 +103,7 @@ func CmdReview(args []string) {
 		case args[i] == "--format":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --format requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			format = args[i]
@@ -112,7 +112,7 @@ func CmdReview(args []string) {
 		case args[i] == "--project":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --project requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			projectName = args[i]
@@ -134,8 +134,10 @@ func CmdReview(args []string) {
 		format = "text"
 	}
 	if format != "text" && format != "json" {
+		// po-cj4s7: invalid argument = usage error (exit 2). Exit 1 here
+		// could be mistaken for a blocking finding by --enforce CI gates.
 		fmt.Fprintf(os.Stderr, "Error: --format must be text or json\n")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	// Auto-detect base ref from CI environment if not specified

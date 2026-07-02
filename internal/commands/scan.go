@@ -327,14 +327,14 @@ func CmdScan(args []string, version string) {
 		case "--service", "-s":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --service requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			service = args[i]
 		case "--target", "-t":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --target requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			targetDir = args[i]
@@ -343,21 +343,21 @@ func CmdScan(args []string, version string) {
 		case "--file", "-f":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --file requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			inputFile = args[i]
 		case "--cs-file":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --cs-file requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			csFile = args[i]
 		case "--scan-dir":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --scan-dir requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			scanDir = args[i]
@@ -374,7 +374,7 @@ func CmdScan(args []string, version string) {
 		case "--format":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --format requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			format = args[i]
@@ -385,14 +385,14 @@ func CmdScan(args []string, version string) {
 		case "--source":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --source requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			matchersSourceFilter = args[i]
 		case "--matchers":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --matchers requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			matchersFlag = args[i]
@@ -401,7 +401,7 @@ func CmdScan(args []string, version string) {
 		case "--base":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --base requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			baseRef = args[i]
@@ -414,14 +414,14 @@ func CmdScan(args []string, version string) {
 		case "--mode":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --mode requires a value (enforce|eval)")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			scanModeFlag = args[i]
 		case "--profile":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --profile requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			profileFlag = args[i]
@@ -432,7 +432,7 @@ func CmdScan(args []string, version string) {
 		case "--timeout":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --timeout requires a value (e.g. 90s, 2m)")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			timeoutFlag = args[i]
