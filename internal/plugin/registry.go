@@ -49,8 +49,9 @@ type EditorDef struct {
 	PostInstall func() error
 
 	// CustomInstall replaces the entire install flow (tarball extraction included).
-	// When set, the standard download+extract flow is bypassed.
-	CustomInstall func(version string, data []byte) error
+	// When set, the standard download+extract flow is bypassed. AGENTS.md
+	// context-file setup is still handled centrally by InstallPluginWithOptions.
+	CustomInstall func(version string, data []byte, opts InstallOptions) error
 
 	// CustomRemove replaces the standard removal flow.
 	// When set, the standard skills/agents cleanup is bypassed.

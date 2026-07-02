@@ -15,6 +15,16 @@ func DetectGitRoot() string {
 	return strings.TrimSpace(string(out))
 }
 
+// DetectGitRootFrom returns the git repo root containing dir, or empty string
+// if dir is not inside a git repo. An empty dir means the current directory.
+func DetectGitRootFrom(dir string) string {
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // DetectProjectName extracts a project name from git remote or directory name
 func DetectProjectName(gitRoot string) string {
 	// Try git remote

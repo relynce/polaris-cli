@@ -126,9 +126,41 @@ func extractFlag(args []string, flag string) ([]string, bool) {
 	return filtered, found
 }
 
+// InstallOptions controls optional plugin install/update behavior.
+type InstallOptions struct {
+	// SkipContextFiles skips writing the managed CLAUDE.md and AGENTS.md
+	// blocks into the current git repository (--no-context-files).
+	SkipContextFiles bool
+}
+
+// installContextFiles runs the post-install context-file step: it installs or
+// updates the managed AGENTS.md block in the git repository containing
+// startDir. Skipped silently when opts.SkipContextFiles is set — callers that
+// own the skip (the --no-context-files flag, or rvl init's interactive
+// Steps 4/5) report it themselves. Failures are warnings — the plugin itself
+// installed fine.
+func installContextFiles(startDir string, opts InstallOptions, out io.Writer) {
+	if opts.SkipContextFiles {
+		return
+	}
+	action, err := EnsureAgentsMdForInstall(startDir, out)
+	if err != nil {
+		fmt.Fprintf(out, "Warning: could not set up AGENTS.md: %v\n", err)
+		return
+	}
+	if action != "skipped" {
+		fmt.Fprintf(out, "✓ AGENTS.md: %s\n", action)
+	}
+}
+
 // InstallPlugin downloads and installs the Revelara plugin for the specified editor.
 // If projectRoot is non-empty, installs to projectRoot/LocalDir (project-local).
 func InstallPlugin(editor, projectRoot string) error {
+	return InstallPluginWithOptions(editor, projectRoot, InstallOptions{})
+}
+
+// InstallPluginWithOptions is InstallPlugin with explicit install options.
+func InstallPluginWithOptions(editor, projectRoot string, opts InstallOptions) error {
 	def, ok := Registry[editor]
 	if !ok {
 		return fmt.Errorf("unsupported editor: %s (available: %s)", editor, EditorNames())
@@ -235,7 +267,13 @@ func InstallPlugin(editor, projectRoot string) error {
 
 	// Editors with CustomInstall handle the entire flow themselves (global only)
 	if !isProject && def.CustomInstall != nil {
-		return def.CustomInstall(version, tarballData)
+		if err := def.CustomInstall(version, tarballData, opts); err != nil {
+			return err
+		}
+		// AGENTS.md is editor-agnostic and handled centrally for every editor
+		// (custom installs like Claude only manage their own CLAUDE.md block).
+		installContextFiles(".", opts, os.Stdout)
+		return nil
 	}
 
 	var targetDir string
@@ -271,6 +309,14 @@ func InstallPlugin(editor, projectRoot string) error {
 		}
 	}
 
+	// Ambient reach: give every agent runtime that reads AGENTS.md a pointer
+	// to the rvl context tools, regardless of editor.
+	contextStart := "."
+	if isProject {
+		contextStart = projectRoot
+	}
+	installContextFiles(contextStart, opts, os.Stdout)
+
 	PrintPostInstallInstructions(editor, targetDir)
 
 	return nil
@@ -278,6 +324,11 @@ func InstallPlugin(editor, projectRoot string) error {
 
 // UpdatePlugin updates installed plugin(s) to the latest version
 func UpdatePlugin(editor string) error {
+	return UpdatePluginWithOptions(editor, InstallOptions{})
+}
+
+// UpdatePluginWithOptions is UpdatePlugin with explicit install options.
+func UpdatePluginWithOptions(editor string, opts InstallOptions) error {
 	if editor == "" {
 		plugins, err := GetInstalledPlugins()
 		if err != nil {
@@ -292,14 +343,14 @@ func UpdatePlugin(editor string) error {
 		fmt.Printf("Updating %d plugin(s)...\n", len(plugins))
 		for _, p := range plugins {
 			fmt.Printf("\nUpdating %s plugin...\n", p.Editor)
-			if err := InstallPlugin(p.Editor, ""); err != nil {
+			if err := InstallPluginWithOptions(p.Editor, "", opts); err != nil {
 				fmt.Fprintf(os.Stderr, "Failed to update %s: %v\n", p.Editor, err)
 			}
 		}
 		return nil
 	}
 
-	return InstallPlugin(editor, "")
+	return InstallPluginWithOptions(editor, "", opts)
 }
 
 // listEditors prints all supported editors grouped by integration type.
@@ -702,7 +753,7 @@ func PrintPostInstallInstructions(editor, location string) {
 // installAll detects installed editors and installs the plugin to each one.
 // If projectRoot is non-empty, installs project-locally. Editors without
 // LocalDir are skipped for project-local installs.
-func installAll(projectRoot string) {
+func installAll(projectRoot string, opts InstallOptions) {
 	editors := DetectInstalled()
 	if len(editors) == 0 {
 		fmt.Println("No supported AI coding agents detected.")
@@ -724,7 +775,7 @@ func installAll(projectRoot string) {
 				continue
 			}
 		}
-		if err := InstallPlugin(editor, projectRoot); err != nil {
+		if err := InstallPluginWithOptions(editor, projectRoot, opts); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to install for %s: %v\n\n", editor, err)
 			failed++
 		} else {
@@ -745,7 +796,7 @@ func installAll(projectRoot string) {
 
 // pluginUsage returns the usage text for `rvl plugin`.
 func pluginUsage() string {
-	return fmt.Sprintf("Usage: rvl plugin <command>\n\nCommands:\n  install <agent>             Install skills for agent (%s)\n  install <agent> --project   Install to current project directory\n  install --all               Auto-detect and install to all agents\n  install --all --project     Auto-detect and install project-locally\n  update [agent]              Update skills to latest version\n  update --all                Update all installed plugins\n  list                        List installed skills\n  agents [--editor=NAME]      List installed agent lenses (default: claude)\n  editors                     List all supported agents\n  remove <agent>              Remove installed skills\n  remove <agent> --project    Remove project-local skills\n\nExamples:\n  rvl plugin install claude         Install Claude Code plugin\n  rvl plugin install gemini --project  Install to project directory\n  rvl plugin install --all          Install to all detected agents\n  rvl plugin update                 Update all installed plugins\n  rvl plugin agents --json          List installed lenses as JSON (used by /rvl:scan)\n  rvl plugin editors                Show all supported agents\n  rvl plugin list                   Show installed plugins\n", EditorNames())
+	return fmt.Sprintf("Usage: rvl plugin <command>\n\nCommands:\n  install <agent>             Install skills for agent (%s)\n  install <agent> --project   Install to current project directory\n  install --all               Auto-detect and install to all agents\n  install --all --project     Auto-detect and install project-locally\n  update [agent]              Update skills to latest version\n  update --all                Update all installed plugins\n  list                        List installed skills\n  agents [--editor=NAME]      List installed agent lenses (default: claude)\n  editors                     List all supported agents\n  remove <agent>              Remove installed skills\n  remove <agent> --project    Remove project-local skills\n\nOptions:\n  --no-context-files          Skip writing the managed AGENTS.md/CLAUDE.md\n                              blocks into the current git repo (install/update)\n\nExamples:\n  rvl plugin install claude         Install Claude Code plugin\n  rvl plugin install gemini --project  Install to project directory\n  rvl plugin install --all          Install to all detected agents\n  rvl plugin install codex --no-context-files  Install skills only\n  rvl plugin update                 Update all installed plugins\n  rvl plugin agents --json          List installed lenses as JSON (used by /rvl:scan)\n  rvl plugin editors                Show all supported agents\n  rvl plugin list                   Show installed plugins\n", EditorNames())
 }
 
 // CmdPlugin handles plugin management (install, update, list, remove).
@@ -761,9 +812,14 @@ func CmdPlugin(args []string) {
 		os.Exit(cliutil.ExitUsage)
 	}
 
-	// Extract --project flag from subcommand args
+	// Extract --project and --no-context-files flags from subcommand args
 	subArgs := args[1:]
 	subArgs, isProject := extractFlag(subArgs, "--project")
+	subArgs, noContextFiles := extractFlag(subArgs, "--no-context-files")
+	opts := InstallOptions{SkipContextFiles: noContextFiles}
+	if noContextFiles && (args[0] == "install" || args[0] == "update") {
+		fmt.Println("Skipping AGENTS.md/CLAUDE.md context files (--no-context-files)")
+	}
 
 	var projectRoot string
 	if isProject {
@@ -785,10 +841,10 @@ func CmdPlugin(args []string) {
 			os.Exit(cliutil.ExitUsage)
 		}
 		if subArgs[0] == "--all" {
-			installAll(projectRoot)
+			installAll(projectRoot, opts)
 		} else {
 			editor := subArgs[0]
-			if err := InstallPlugin(editor, projectRoot); err != nil {
+			if err := InstallPluginWithOptions(editor, projectRoot, opts); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
@@ -798,7 +854,7 @@ func CmdPlugin(args []string) {
 		if len(subArgs) >= 1 && subArgs[0] != "--all" {
 			editor = subArgs[0]
 		}
-		if err := UpdatePlugin(editor); err != nil {
+		if err := UpdatePluginWithOptions(editor, opts); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
