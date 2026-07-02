@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
+	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 	"github.com/revelara-ai/rvl-cli/internal/config"
 	"github.com/revelara-ai/rvl-cli/internal/display"
 )
@@ -246,9 +247,13 @@ type CompoundRiskDetailResponse struct {
 
 // CmdRisk is the main dispatcher for risk commands
 func CmdRisk(args []string) {
+	if cliutil.WantsHelp(args) {
+		printRiskUsage()
+		return
+	}
 	if len(args) == 0 {
 		printRiskUsage()
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	switch args[0] {
@@ -269,7 +274,7 @@ func CmdRisk(args []string) {
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown risk command: %s\n", args[0])
 		printRiskUsage()
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 }
 
@@ -286,16 +291,16 @@ Commands:
   accept <risk-code>      Accept a risk (intentional decision to retain)
 
 Options:
-  --org-id <id>          Override organization ID
   --format <json|table>  Output format (default: table)
   --status <status>      Filter by status (for list command)
   --category <category>  Filter by category (for list/ready commands)
   --service <name>       Filter by linked service (for list/ready commands)
-  --limit <n>            Number of results (for ready command, default: 10)
+  --limit <n>            Number of results (list default: 1000, ready default: 10)
 
 Examples:
   rvl risk list
-  rvl risk list --status applicable --service polaris
+  rvl risk list --status applicable --service checkout-api
+  rvl risk list --limit 50
   rvl risk ready
   rvl risk ready --limit 20 --category change_management
   rvl risk show R-001
@@ -307,45 +312,97 @@ Examples:
   rvl risk resolve CR-001`)
 }
 
-// CmdRiskList lists all risks in the register
-func CmdRiskList(args []string) {
-	cfg := api.LoadAndResolveConfig()
+// riskListArgs holds the parsed flag set for `rvl risk list`.
+type riskListArgs struct {
+	status, category, service, format string
+	limit                             int
+}
 
-	var statusFilter, categoryFilter, serviceFilter, format string
+// parseRiskListArgs parses the flags for `rvl risk list`. Returns an
+// error for unknown flags, missing values, or invalid --limit values so
+// the caller can exit with the usage-error code before any config or
+// network work happens.
+//
+// po-cj4s7: --limit is user-settable (default 1000, the server cap).
+// Previously the CLI hardcoded limit=1000 while the vendored agent docs
+// taught --limit=50; the flag was silently swallowed.
+func parseRiskListArgs(args []string) (riskListArgs, error) {
+	parsed := riskListArgs{limit: 1000}
+	setLimit := func(val string) error {
+		n, perr := strconv.Atoi(val)
+		if perr != nil || n < 1 {
+			return fmt.Errorf("--limit expects a positive integer, got %q", val)
+		}
+		parsed.limit = n
+		return nil
+	}
 	for i := 0; i < len(args); i++ {
 		switch {
 		case args[i] == "--status" && i+1 < len(args):
-			statusFilter = args[i+1]; i++
+			parsed.status = args[i+1]
+			i++
 		case strings.HasPrefix(args[i], "--status="):
-			statusFilter = strings.TrimPrefix(args[i], "--status=")
+			parsed.status = strings.TrimPrefix(args[i], "--status=")
 		case args[i] == "--category" && i+1 < len(args):
-			categoryFilter = args[i+1]; i++
+			parsed.category = args[i+1]
+			i++
 		case strings.HasPrefix(args[i], "--category="):
-			categoryFilter = strings.TrimPrefix(args[i], "--category=")
+			parsed.category = strings.TrimPrefix(args[i], "--category=")
 		case args[i] == "--service" && i+1 < len(args):
-			serviceFilter = args[i+1]; i++
+			parsed.service = args[i+1]
+			i++
 		case strings.HasPrefix(args[i], "--service="):
-			serviceFilter = strings.TrimPrefix(args[i], "--service=")
+			parsed.service = strings.TrimPrefix(args[i], "--service=")
 		case args[i] == "--format" && i+1 < len(args):
-			format = args[i+1]; i++
+			parsed.format = args[i+1]
+			i++
 		case strings.HasPrefix(args[i], "--format="):
-			format = strings.TrimPrefix(args[i], "--format=")
+			parsed.format = strings.TrimPrefix(args[i], "--format=")
+		case args[i] == "--limit" && i+1 < len(args):
+			if err := setLimit(args[i+1]); err != nil {
+				return parsed, err
+			}
+			i++
+		case strings.HasPrefix(args[i], "--limit="):
+			if err := setLimit(strings.TrimPrefix(args[i], "--limit=")); err != nil {
+				return parsed, err
+			}
+		case args[i] == "--status" || args[i] == "--category" || args[i] == "--service" || args[i] == "--format" || args[i] == "--limit":
+			return parsed, fmt.Errorf("%s requires a value", args[i])
+		case strings.HasPrefix(args[i], "-"):
+			return parsed, fmt.Errorf("unknown flag: %s", args[i])
+		default:
+			return parsed, fmt.Errorf("unexpected argument: %q", args[i])
 		}
 	}
+	return parsed, nil
+}
+
+// CmdRiskList lists all risks in the register
+func CmdRiskList(args []string) {
+	parsed, perr := parseRiskListArgs(args)
+	if perr != nil {
+		fmt.Fprintln(os.Stderr, perr)
+		fmt.Fprintln(os.Stderr, "Run 'rvl risk --help' for usage.")
+		os.Exit(cliutil.ExitUsage)
+	}
+	format := parsed.format
+
+	cfg := api.LoadAndResolveConfig()
 
 	// po-2msnd: build the query string via url.Values so service names with
 	// '&', '=', or '%' don't smuggle extra params or trigger backend
 	// percent-decoding errors.
 	q := url.Values{}
-	q.Set("limit", "1000")
-	if statusFilter != "" {
-		q.Set("status", statusFilter)
+	q.Set("limit", strconv.Itoa(parsed.limit))
+	if parsed.status != "" {
+		q.Set("status", parsed.status)
 	}
-	if categoryFilter != "" {
-		q.Set("category", categoryFilter)
+	if parsed.category != "" {
+		q.Set("category", parsed.category)
 	}
-	if serviceFilter != "" {
-		q.Set("service", serviceFilter)
+	if parsed.service != "" {
+		q.Set("service", parsed.service)
 	}
 	endpoint := cfg.APIURL + "/api/v1/risks?" + q.Encode()
 
@@ -389,7 +446,7 @@ func CmdRiskList(args []string) {
 	// user knows they're seeing the first N by sort, not all matches.
 	if resp.Total > len(resp.Risks) {
 		fmt.Fprintf(os.Stderr,
-			"\nNote: showing first %d of %d total risks. Use --status / --category / --service to narrow.\n",
+			"\nNote: showing first %d of %d total risks. Raise --limit or use --status / --category / --service to narrow.\n",
 			len(resp.Risks), resp.Total)
 	}
 }
@@ -401,8 +458,6 @@ func CmdRiskList(args []string) {
 // only open status was stale and the filter below returned nothing in
 // production because no row ever has status="detected".
 func CmdRiskReady(args []string) {
-	cfg := api.LoadAndResolveConfig()
-
 	var categoryFilter, serviceFilter, format string
 	limit := 10
 	for i := 0; i < len(args); i++ {
@@ -422,22 +477,27 @@ func CmdRiskReady(args []string) {
 			n, perr := strconv.Atoi(args[i+1])
 			if perr != nil || n < 1 {
 				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", args[i+1])
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			limit = n; i++
 		case strings.HasPrefix(args[i], "--limit="):
 			n, perr := strconv.Atoi(strings.TrimPrefix(args[i], "--limit="))
 			if perr != nil || n < 1 {
 				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", strings.TrimPrefix(args[i], "--limit="))
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			limit = n
 		case args[i] == "--format" && i+1 < len(args):
 			format = args[i+1]; i++
 		case strings.HasPrefix(args[i], "--format="):
 			format = strings.TrimPrefix(args[i], "--format=")
+		default:
+			// po-cj4s7: unknown flags must error, not silently no-op.
+			cliutil.ExitUnknownFlag(args[i], "rvl risk")
 		}
 	}
+
+	cfg := api.LoadAndResolveConfig()
 
 	// Fetch risks sorted by score descending.
 	// po-2msnd: URL-encode query params via url.Values so filter values
@@ -604,7 +664,7 @@ func fetchCompoundRiskDetail(cfg *config.Config, code string) (*CompoundRiskDeta
 func CmdRiskShow(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Usage: rvl risk show <risk-code> [--format=json]")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	// po-2sn1o: --format=json must short-circuit table rendering so
@@ -624,6 +684,8 @@ func CmdRiskShow(args []string) {
 		default:
 			if strings.HasPrefix(args[i], "--format=") {
 				format = strings.TrimPrefix(args[i], "--format=")
+			} else if strings.HasPrefix(args[i], "-") {
+				cliutil.ExitUnknownFlag(args[i], "rvl risk")
 			} else {
 				positional = append(positional, args[i])
 			}
@@ -631,7 +693,7 @@ func CmdRiskShow(args []string) {
 	}
 	if len(positional) == 0 {
 		fmt.Fprintln(os.Stderr, "Usage: rvl risk show <risk-code> [--format=json]")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	cfg := api.LoadAndResolveConfig()
@@ -755,7 +817,7 @@ func CmdRiskShow(args []string) {
 func CmdRiskContext(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Usage: rvl risk context <risk-code> [--format=json]")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	// po-ljto0: --format=json must short-circuit table rendering. The
@@ -776,6 +838,8 @@ func CmdRiskContext(args []string) {
 		default:
 			if strings.HasPrefix(args[i], "--format=") {
 				format = strings.TrimPrefix(args[i], "--format=")
+			} else if strings.HasPrefix(args[i], "-") {
+				cliutil.ExitUnknownFlag(args[i], "rvl risk")
 			} else {
 				positional = append(positional, args[i])
 			}
@@ -783,7 +847,7 @@ func CmdRiskContext(args []string) {
 	}
 	if len(positional) == 0 {
 		fmt.Fprintln(os.Stderr, "Usage: rvl risk context <risk-code> [--format=json]")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	cfg := api.LoadAndResolveConfig()
@@ -1136,6 +1200,12 @@ func printCompoundRiskContext(d *CompoundRiskDetailResponse) {
 
 // CmdRiskStale lists risks marked as stale
 func CmdRiskStale(args []string) {
+	// po-cj4s7: this subcommand takes no flags; error instead of
+	// silently ignoring whatever was passed.
+	for _, arg := range args {
+		cliutil.ExitUnknownFlag(arg, "rvl risk")
+	}
+
 	cfg := api.LoadAndResolveConfig()
 
 	endpoint := cfg.APIURL + "/api/v1/risks/stale"
@@ -1177,10 +1247,8 @@ func CmdRiskStale(args []string) {
 func CmdRiskResolve(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Usage: rvl risk resolve <risk-code> [--reason \"...\"] [--format=json]")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
-
-	cfg := api.LoadAndResolveConfig()
 
 	riskCode := args[0]
 	reason := "Resolved"
@@ -1197,8 +1265,12 @@ func CmdRiskResolve(args []string) {
 			i++
 		case strings.HasPrefix(args[i], "--format="):
 			format = strings.TrimPrefix(args[i], "--format=")
+		default:
+			cliutil.ExitUnknownFlag(args[i], "rvl risk")
 		}
 	}
+
+	cfg := api.LoadAndResolveConfig()
 
 	// Compound risks auto-resolve when all constituent R-XXX risks are mitigated.
 	// Resolve each applicable constituent individually.
@@ -1262,10 +1334,8 @@ func CmdRiskResolve(args []string) {
 func CmdRiskAccept(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Usage: rvl risk accept <risk-code> [--reason \"...\"]")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
-
-	cfg := api.LoadAndResolveConfig()
 
 	riskCode := args[0]
 	reason := ""
@@ -1275,8 +1345,12 @@ func CmdRiskAccept(args []string) {
 			i++
 		} else if strings.HasPrefix(args[i], "--reason=") {
 			reason = strings.TrimPrefix(args[i], "--reason=")
+		} else {
+			cliutil.ExitUnknownFlag(args[i], "rvl risk")
 		}
 	}
+
+	cfg := api.LoadAndResolveConfig()
 
 	riskID, err := FindRiskIDByCode(cfg, riskCode)
 	if err != nil {

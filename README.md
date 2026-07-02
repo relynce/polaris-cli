@@ -69,6 +69,32 @@ After `rvl init` (or `rvl plugin install`), the following slash commands are ava
 
 Credentials are stored in `~/.revelara/config.yaml` (mode 0600). The CLI never exposes credentials to LLM contexts.
 
+### Environment Variables
+
+For headless and CI environments with no config file, credentials can be supplied as environment variables. They take precedence over `~/.revelara/config.yaml`:
+
+| Variable | Purpose |
+|----------|---------|
+| `RVL_API_KEY` | API key (equivalent to config `api_key`) |
+| `RVL_API_URL` | API endpoint (equivalent to config `api_url`) |
+| `RVL_ORG_NAME` | Organization name (equivalent to config `org_name`) |
+
+```bash
+# CI example: no `rvl login` needed
+export RVL_API_KEY="$REVELARA_API_KEY_SECRET"
+rvl scan --local --target . --format json
+```
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success, including help output (`help`, `-h`, `--help`) |
+| 1 | Runtime failure (API error, authentication failure, network problem) |
+| 2 | Usage error (unknown command, unknown flag, invalid argument) |
+
+Exceptions: `rvl scan --local` uses its documented CI-gate codes (0 = no critical/high findings, 1 = at least one critical/high finding, 2 = scanner error), and `rvl review` follows its `--enforce` / `--fail-closed` contract (advisory mode always exits 0). `rvl knowledge enrich` degrades gracefully: it exits 1 only when every parallel fetch fails; partial failures print warnings on stderr and exit 0.
+
 ## License
 
 [Business Source License 1.1](LICENSE) — see LICENSE for details.

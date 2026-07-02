@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
+	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 	"github.com/revelara-ai/rvl-cli/internal/display"
 	"github.com/revelara-ai/rvl-cli/internal/project"
 )
@@ -61,6 +62,11 @@ type RiskSummary struct {
 
 // CmdReview handles the review command
 func CmdReview(args []string) {
+	if cliutil.WantsHelp(args) {
+		printReviewUsage()
+		return
+	}
+
 	var commitSHA, baseRef, environment, format, projectName string
 	var enforce, failClosed, verbose bool
 
@@ -70,7 +76,7 @@ func CmdReview(args []string) {
 		case args[i] == "--commit":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --commit requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			commitSHA = args[i]
@@ -79,7 +85,7 @@ func CmdReview(args []string) {
 		case args[i] == "--base":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --base requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			baseRef = args[i]
@@ -88,7 +94,7 @@ func CmdReview(args []string) {
 		case args[i] == "--env":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --env requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			environment = args[i]
@@ -97,7 +103,7 @@ func CmdReview(args []string) {
 		case args[i] == "--format":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --format requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			format = args[i]
@@ -106,7 +112,7 @@ func CmdReview(args []string) {
 		case args[i] == "--project":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --project requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			projectName = args[i]
@@ -119,9 +125,7 @@ func CmdReview(args []string) {
 		case args[i] == "--verbose":
 			verbose = true
 		default:
-			fmt.Fprintf(os.Stderr, "Unknown flag: %s\n", args[i])
-			printReviewUsage()
-			os.Exit(1)
+			cliutil.ExitUnknownFlag(args[i], "rvl review")
 		}
 	}
 
@@ -130,8 +134,10 @@ func CmdReview(args []string) {
 		format = "text"
 	}
 	if format != "text" && format != "json" {
+		// po-cj4s7: invalid argument = usage error (exit 2). Exit 1 here
+		// could be mistaken for a blocking finding by --enforce CI gates.
 		fmt.Fprintf(os.Stderr, "Error: --format must be text or json\n")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	// Auto-detect base ref from CI environment if not specified

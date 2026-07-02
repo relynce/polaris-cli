@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
+	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 	"github.com/revelara-ai/rvl-cli/internal/config"
 	"github.com/revelara-ai/rvl-cli/internal/plugin"
 	"golang.org/x/term"
@@ -182,6 +183,17 @@ func CmdLogin() {
 	fmt.Println("Configuration saved to ~/.revelara/config.yaml")
 }
 
+func printStatusUsage() {
+	fmt.Println(`rvl status - Check connection and authentication status
+
+Usage:
+  rvl status
+
+Shows the configured API URL, masked API key, organization, CLI version
+(with update check), and installed plugin versions. Requires credentials
+from 'rvl login' or the RVL_API_KEY environment variable.`)
+}
+
 // CmdLogout removes stored credentials
 func CmdLogout() {
 	path := config.GetConfigPath()
@@ -198,7 +210,17 @@ func CmdLogout() {
 
 // CmdStatus checks connection and auth status
 // Takes version and gitHash as params since they're defined in main
-func CmdStatus(version, gitHash string) {
+func CmdStatus(args []string, version, gitHash string) {
+	// po-cj4s7: `rvl status --help` used to run the real command,
+	// including a live API call. Help must be network-free.
+	if cliutil.WantsHelp(args) {
+		printStatusUsage()
+		return
+	}
+	for _, arg := range args {
+		cliutil.ExitUnknownFlag(arg, "rvl status")
+	}
+
 	cfg := api.LoadAndResolveConfig()
 	fmt.Printf("Revelara CLI %s (%s)\n", version, gitHash)
 	fmt.Printf("API URL: %s\n", cfg.APIURL)

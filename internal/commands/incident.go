@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
+	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 )
 
 // IncidentSearchResult mirrors the GET /api/v1/incidents/search response item.
@@ -31,9 +32,13 @@ type IncidentSearchResponse struct {
 
 // CmdIncident is the entry point for `rvl incident <subcommand>`.
 func CmdIncident(args []string) {
+	if cliutil.WantsHelp(args) {
+		printIncidentUsage()
+		return
+	}
 	if len(args) == 0 {
 		printIncidentUsage()
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 	switch args[0] {
 	case "search":
@@ -41,12 +46,12 @@ func CmdIncident(args []string) {
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown subcommand: %s\n", args[0])
 		printIncidentUsage()
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 }
 
 func printIncidentUsage() {
-	fmt.Fprintln(os.Stderr, `rvl incident - Search and retrieve incident postmortems
+	fmt.Println(`rvl incident - Search and retrieve incident postmortems
 
 Usage:
   rvl incident <subcommand> [options]
@@ -65,11 +70,16 @@ Examples:
 }
 
 func cmdIncidentSearch(args []string) {
-	q, limit, format := parseIncidentSearchArgs(args)
+	q, limit, format, perr := parseIncidentSearchArgs(args)
+	if perr != nil {
+		fmt.Fprintln(os.Stderr, perr)
+		fmt.Fprintln(os.Stderr, "Run 'rvl incident --help' for usage.")
+		os.Exit(cliutil.ExitUsage)
+	}
 	if q == "" {
 		fmt.Fprintln(os.Stderr, "Error: search query required")
 		fmt.Fprintln(os.Stderr, "Usage: rvl incident search <query> [--limit=N] [--format=table|json]")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	cfg := api.LoadAndResolveConfig()
@@ -101,24 +111,31 @@ func cmdIncidentSearch(args []string) {
 }
 
 // parseIncidentSearchArgs parses args into (query, limit, format).
-func parseIncidentSearchArgs(args []string) (query string, limit int, format string) {
+// Returns an error for unknown flags or invalid --limit values so the
+// caller can exit with the usage-error code (po-cj4s7).
+func parseIncidentSearchArgs(args []string) (query string, limit int, format string, err error) {
 	limit = 10
 	format = "table"
 	var queryParts []string
 	for _, arg := range args {
 		switch {
 		case strings.HasPrefix(arg, "--limit="):
-			if n, err := strconv.Atoi(strings.TrimPrefix(arg, "--limit=")); err == nil && n > 0 {
-				limit = n
+			val := strings.TrimPrefix(arg, "--limit=")
+			n, perr := strconv.Atoi(val)
+			if perr != nil || n < 1 {
+				return "", 0, "", fmt.Errorf("--limit expects a positive integer, got %q", val)
 			}
+			limit = n
 		case strings.HasPrefix(arg, "--format="):
 			format = strings.TrimPrefix(arg, "--format=")
-		case !strings.HasPrefix(arg, "-"):
+		case strings.HasPrefix(arg, "-"):
+			return "", 0, "", fmt.Errorf("unknown flag: %s", arg)
+		default:
 			queryParts = append(queryParts, arg)
 		}
 	}
 	query = strings.Join(queryParts, " ")
-	return
+	return query, limit, format, nil
 }
 
 const incidentTitleMaxLen = 60

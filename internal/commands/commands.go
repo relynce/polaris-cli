@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
+	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 	"github.com/revelara-ai/rvl-cli/internal/config"
 )
 
@@ -40,7 +41,12 @@ type Agent struct {
 
 // CmdCommands lists available skills and agents from the API
 func CmdCommands(args []string) {
-	cfg := api.LoadAndResolveConfig()
+	// po-cj4s7: parse help/flags before loading config so `rvl commands
+	// --help` works without credentials and makes no network calls.
+	if cliutil.WantsHelp(args) {
+		printCommandsUsage()
+		return
+	}
 
 	showSkills := true
 	showAgents := true
@@ -50,11 +56,12 @@ func CmdCommands(args []string) {
 			showAgents = false
 		case "--agents":
 			showSkills = false
-		case "help", "--help", "-h":
-			printCommandsUsage()
-			return
+		default:
+			cliutil.ExitUnknownFlag(arg, "rvl commands")
 		}
 	}
+
+	cfg := api.LoadAndResolveConfig()
 
 	if showSkills {
 		printSkills(cfg)

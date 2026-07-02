@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 )
 
 // CmdMigrate performs a one-shot migration from old naming conventions
@@ -28,13 +30,11 @@ func CmdMigrate(args []string) {
 			yesAll = true
 		case "--dry-run":
 			dryRun = true
-		case "-h", "--help":
+		case "help", "-h", "--help":
 			printMigrateUsage()
 			return
 		default:
-			fmt.Fprintf(os.Stderr, "Unknown flag: %s\n", arg)
-			printMigrateUsage()
-			os.Exit(1)
+			cliutil.ExitUnknownFlag(arg, "rvl migrate")
 		}
 	}
 

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
+	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 	"github.com/revelara-ai/rvl-cli/internal/config"
 	"github.com/revelara-ai/rvl-cli/internal/display"
 )
@@ -61,9 +62,13 @@ type ListControlsResponse struct {
 
 // CmdControl dispatches control subcommands
 func CmdControl(args []string) {
+	if cliutil.WantsHelp(args) {
+		printControlUsage()
+		return
+	}
 	if len(args) == 0 {
 		printControlUsage()
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 	subcmd := args[0]
 	switch subcmd {
@@ -71,12 +76,10 @@ func CmdControl(args []string) {
 		cmdControlList(args[1:])
 	case "show":
 		cmdControlShow(args[1:])
-	case "help", "--help", "-h":
-		printControlUsage()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown control command: %s\n", subcmd)
 		printControlUsage()
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 }
 
@@ -125,7 +128,7 @@ func cmdControlList(args []string) {
 			n, perr := strconv.Atoi(val)
 			if perr != nil || n < 1 {
 				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", val)
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			limit = n
 		case strings.HasPrefix(arg, "--format="):
@@ -135,7 +138,7 @@ func cmdControlList(args []string) {
 				n, perr := strconv.Atoi(args[i+1])
 				if perr != nil || n < 1 {
 					fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", args[i+1])
-					os.Exit(1)
+					os.Exit(cliutil.ExitUsage)
 				}
 				limit = n
 				i++
@@ -150,6 +153,9 @@ func cmdControlList(args []string) {
 				format = args[i+1]
 				i++
 			}
+		default:
+			// po-cj4s7: unknown flags must error, not silently no-op.
+			cliutil.ExitUnknownFlag(arg, "rvl control")
 		}
 	}
 
@@ -226,6 +232,8 @@ func cmdControlShow(args []string) {
 				format = args[i+1]
 				i++
 			}
+		case strings.HasPrefix(arg, "-"):
+			cliutil.ExitUnknownFlag(arg, "rvl control")
 		default:
 			positional = append(positional, arg)
 		}
@@ -233,13 +241,13 @@ func cmdControlShow(args []string) {
 	if len(positional) == 0 {
 		fmt.Fprintln(os.Stderr, "Error: control code required")
 		fmt.Fprintln(os.Stderr, "Usage: rvl control show <control-code> [--format=json]")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 	controlCode := positional[0]
 	if strings.HasPrefix(controlCode, "R-") && !strings.HasPrefix(controlCode, "RC-") {
 		fmt.Fprintf(os.Stderr, "Note: \"%s\" is a risk code, not a control code (RC-XXX).\n", controlCode)
 		fmt.Fprintf(os.Stderr, "Use \"rvl risk show %s\" to see its mapped controls.\n", controlCode)
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 	cfg := api.LoadAndResolveConfig()
 	endpoint := cfg.APIURL + "/api/v1/controls/by-code/" + url.PathEscape(controlCode)
