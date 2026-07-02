@@ -32,7 +32,7 @@ func CleanupOldClaudeInstallations() error {
 }
 
 // InstallClaudePlugin installs the plugin using Claude Code's local marketplace mechanism
-func InstallClaudePlugin(version string, tarballData []byte) error {
+func InstallClaudePlugin(version string, tarballData []byte, opts InstallOptions) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("get home directory: %w", err)
@@ -132,7 +132,8 @@ func InstallClaudePlugin(version string, tarballData []byte) error {
 	}
 
 	// Install CLAUDE.md managed block if we're in a git repo
-	if gitRoot := project.DetectGitRoot(); gitRoot != "" {
+	// (AGENTS.md is handled centrally by InstallPluginWithOptions for all editors)
+	if gitRoot := project.DetectGitRoot(); gitRoot != "" && !opts.SkipContextFiles {
 		claudeMdSrc := filepath.Join(pluginDir, "CLAUDE.md")
 		if _, err := os.Stat(claudeMdSrc); err == nil {
 			action, err := EnsureClaudeMd(gitRoot, claudeMdSrc, true)

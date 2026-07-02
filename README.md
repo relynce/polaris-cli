@@ -49,6 +49,13 @@ After `rvl init` (or `rvl plugin install`), the following slash commands are ava
 | `/rvl:evidence` | Submit evidence that a control has been implemented |
 | `/rvl:status` | Check CLI connectivity and plugin health |
 
+When run inside a git repository, `rvl plugin install` (any agent, or `--all`) also
+adds a managed Revelara block to the repo's `AGENTS.md` — read natively by most
+agent runtimes — with the `rvl` context-tool cheat sheet and skill reference.
+Claude Code installs additionally maintain the same block in `CLAUDE.md`. The
+blocks are marker-delimited and updated in place on reinstall/update. Pass
+`--no-context-files` to `rvl plugin install`/`update` to skip them.
+
 ## CLI Commands
 
 | Command | Description |

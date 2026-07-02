@@ -16,25 +16,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const agentsMdTemplate = `## Revelara
-
-This project uses Revelara for reliability risk analysis. The following skills are available:
-
-### Core Skills
-- ` + "`/rvl:scan`" + ` — Scan codebase for reliability risks
-- ` + "`/rvl:fix R-XXX`" + ` — Get remediation guidance and auto-fix a risk
-- ` + "`/rvl:ask \"question\"`" + ` — Ask any reliability question to a domain expert
-- ` + "`/rvl:risks`" + ` — View risk posture, open risks, and ready-to-fix items
-- ` + "`/rvl:review`" + ` — Review code changes for reliability issues
-- ` + "`/rvl:evidence RC-XXX`" + ` — Submit evidence after implementing a control
-- ` + "`/rvl:status`" + ` — Check connection and configuration
-
-### Quick Reference
-- Run ` + "`rvl risk list`" + ` to see current risks
-- Run ` + "`rvl risk show <code>`" + ` for risk details with mapped controls
-- Run ` + "`rvl control show <code>`" + ` for control implementation guidance
-`
-
 // huhTheme is the shared high-contrast theme for every interactive prompt
 // (po-bs7jx). huh's default (ThemeCharm) renders the focused button as
 // near-white text on a fuchsia/pink background (cream on #F780E2) — the
@@ -505,107 +486,44 @@ func promptComponents() ([]project.ProjectComponent, error) {
 	return components, nil
 }
 
-// EnsureAgentsMd creates or updates AGENTS.md with Revelara sections
+// EnsureAgentsMd creates or updates AGENTS.md with the managed Revelara block.
+// It prompts before appending to or updating an existing file (unless force or
+// yesAll), then delegates the write to plugin.EnsureAgentsMd so init and
+// `rvl plugin install` share a single implementation.
 func EnsureAgentsMd(gitRoot string, force, yesAll bool) (string, error) {
-	agentsMdPath := filepath.Join(gitRoot, "AGENTS.md")
-	content, err := os.ReadFile(agentsMdPath)
-
-	if os.IsNotExist(err) {
-		if err := os.WriteFile(agentsMdPath, []byte(agentsMdTemplate), 0644); err != nil {
-			return "", err
+	proceed := force || yesAll
+	if !proceed {
+		var title string
+		switch plugin.AgentsMdState(gitRoot) {
+		case plugin.AgentsMdStateMissing:
+			// Creating a fresh AGENTS.md was never prompted for.
+			proceed = true
+		case plugin.AgentsMdStateUnmanaged:
+			title = "AGENTS.md exists but has no Revelara section. Append?"
+		case plugin.AgentsMdStateManaged:
+			title = "AGENTS.md already has Revelara section. Update?"
 		}
-		return "created", nil
-	}
 
-	if err != nil {
-		return "", err
-	}
-
-	contentStr := string(content)
-	hasPolarisSection := strings.Contains(contentStr, "## Revelara")
-
-	if !hasPolarisSection {
-		var shouldAppend bool
-		if yesAll || force {
-			shouldAppend = true
-		} else {
+		if title != "" {
+			var confirmed bool
 			err := huh.NewConfirm().
-				Title("AGENTS.md exists but has no Revelara section. Append?").
+				Title(title).
 				Affirmative("Yes").
 				Negative("No").
-				Value(&shouldAppend).
+				Value(&confirmed).
 				WithTheme(huhTheme).
 				Run()
-			if err != nil {
+			if err != nil || !confirmed {
 				return "skipped", nil
 			}
+			proceed = true
 		}
+	}
 
-		if shouldAppend {
-			updatedContent := contentStr
-			if !strings.HasSuffix(contentStr, "\n") {
-				updatedContent += "\n"
-			}
-			updatedContent += "\n" + agentsMdTemplate
-			if err := os.WriteFile(agentsMdPath, []byte(updatedContent), 0644); err != nil {
-				return "", err
-			}
-			return "appended", nil
-		}
+	if !proceed {
 		return "skipped", nil
 	}
-
-	// Already has Polaris section — prompt to update
-	var shouldUpdate bool
-	if yesAll || force {
-		shouldUpdate = true
-	} else {
-		err := huh.NewConfirm().
-			Title("AGENTS.md already has Revelara section. Update?").
-			Affirmative("Yes").
-			Negative("No").
-			Value(&shouldUpdate).
-			WithTheme(huhTheme).
-			Run()
-		if err != nil {
-			return "skipped", nil
-		}
-	}
-
-	if shouldUpdate {
-		lines := strings.Split(contentStr, "\n")
-		var newLines []string
-		var inPolarisSection bool
-
-		for i, line := range lines {
-			if strings.TrimSpace(line) == "## Revelara" {
-				inPolarisSection = true
-				newLines = append(newLines, agentsMdTemplate)
-				continue
-			}
-
-			if inPolarisSection {
-				if strings.HasPrefix(strings.TrimSpace(line), "##") && line != "## Revelara" {
-					inPolarisSection = false
-					newLines = append(newLines, line)
-				}
-				if i == len(lines)-1 {
-					break
-				}
-				continue
-			}
-
-			newLines = append(newLines, line)
-		}
-
-		updatedContent := strings.Join(newLines, "\n")
-		if err := os.WriteFile(agentsMdPath, []byte(updatedContent), 0644); err != nil {
-			return "", err
-		}
-		return "updated", nil
-	}
-
-	return "skipped", nil
+	return plugin.EnsureAgentsMd(gitRoot, true)
 }
 
 func printInitSummary(cfg *project.ProjectConfig, pluginInstalled bool, pluginVersion string, credentialsConfigured bool, agentsMdAction string) {
