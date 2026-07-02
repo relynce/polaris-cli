@@ -394,6 +394,8 @@ Exit Codes:
   1  Runtime failure (API error, authentication failure)
   2  Usage error (unknown command, unknown flag, invalid argument)
   Exceptions: 'rvl scan --local' uses the documented gate codes
-  (0 = clean, 1 = critical/high finding, 2 = scanner error) and
-  'rvl review' follows its --enforce/--fail-closed contract.`)
+  (0 = clean, 1 = critical/high finding, 2 = scanner error),
+  'rvl review' follows its --enforce/--fail-closed contract, and
+  'rvl knowledge enrich' exits 1 only when every fetch fails
+  (partial failures warn on stderr and exit 0).`)
 }

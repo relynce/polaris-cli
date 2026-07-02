@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
@@ -514,7 +515,15 @@ func cmdSTPAListUCAs(args []string) {
 		case strings.HasPrefix(arg, "--control-code="):
 			controlCode = strings.TrimPrefix(arg, "--control-code=")
 		case strings.HasPrefix(arg, "--limit="):
-			fmt.Sscanf(strings.TrimPrefix(arg, "--limit="), "%d", &limit)
+			// po-cj4s7: invalid numeric flags must exit 2 before any
+			// network call, not be silently ignored.
+			val := strings.TrimPrefix(arg, "--limit=")
+			n, perr := strconv.Atoi(val)
+			if perr != nil || n < 1 {
+				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", val)
+				os.Exit(cliutil.ExitUsage)
+			}
+			limit = n
 		default:
 			cliutil.ExitUnknownFlag(arg, "rvl stpa")
 		}

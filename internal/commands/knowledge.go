@@ -933,7 +933,15 @@ func cmdKnowledgeGraph(args []string) {
 
 	for _, arg := range args[2:] {
 		if strings.HasPrefix(arg, "--depth=") {
-			fmt.Sscanf(strings.TrimPrefix(arg, "--depth="), "%d", &depth)
+			// po-cj4s7: invalid numeric flags must exit 2 before any
+			// network call, not be silently ignored.
+			val := strings.TrimPrefix(arg, "--depth=")
+			n, perr := strconv.Atoi(val)
+			if perr != nil || n < 1 {
+				fmt.Fprintf(os.Stderr, "Error: --depth expects a positive integer, got %q\n", val)
+				os.Exit(cliutil.ExitUsage)
+			}
+			depth = n
 		} else if strings.HasPrefix(arg, "--min-strength=") {
 			minStrength = strings.TrimPrefix(arg, "--min-strength=")
 		} else if strings.HasPrefix(arg, "--type=") {
@@ -1006,9 +1014,21 @@ func cmdKnowledgeForesight(args []string) {
 		} else if strings.HasPrefix(arg, "--entity-id=") {
 			entityID = strings.TrimPrefix(arg, "--entity-id=")
 		} else if strings.HasPrefix(arg, "--depth=") {
-			fmt.Sscanf(strings.TrimPrefix(arg, "--depth="), "%d", &depth)
+			val := strings.TrimPrefix(arg, "--depth=")
+			n, perr := strconv.Atoi(val)
+			if perr != nil || n < 1 {
+				fmt.Fprintf(os.Stderr, "Error: --depth expects a positive integer, got %q\n", val)
+				os.Exit(cliutil.ExitUsage)
+			}
+			depth = n
 		} else if strings.HasPrefix(arg, "--min-strength=") {
-			fmt.Sscanf(strings.TrimPrefix(arg, "--min-strength="), "%f", &minStrength)
+			val := strings.TrimPrefix(arg, "--min-strength=")
+			f, perr := strconv.ParseFloat(val, 64)
+			if perr != nil || f < 0 || f > 1 {
+				fmt.Fprintf(os.Stderr, "Error: --min-strength expects a number between 0 and 1, got %q\n", val)
+				os.Exit(cliutil.ExitUsage)
+			}
+			minStrength = f
 		} else if strings.HasPrefix(arg, "--include-mitigations") {
 			includeMitigations = true
 		} else if strings.HasPrefix(arg, "--relation-types=") {
@@ -1136,9 +1156,21 @@ func cmdKnowledgeGraphSearch(args []string) {
 
 	for _, arg := range args {
 		if strings.HasPrefix(arg, "--limit=") {
-			fmt.Sscanf(strings.TrimPrefix(arg, "--limit="), "%d", &limit)
+			val := strings.TrimPrefix(arg, "--limit=")
+			n, perr := strconv.Atoi(val)
+			if perr != nil || n < 1 {
+				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", val)
+				os.Exit(cliutil.ExitUsage)
+			}
+			limit = n
 		} else if strings.HasPrefix(arg, "--depth=") {
-			fmt.Sscanf(strings.TrimPrefix(arg, "--depth="), "%d", &depth)
+			val := strings.TrimPrefix(arg, "--depth=")
+			n, perr := strconv.Atoi(val)
+			if perr != nil || n < 1 {
+				fmt.Fprintf(os.Stderr, "Error: --depth expects a positive integer, got %q\n", val)
+				os.Exit(cliutil.ExitUsage)
+			}
+			depth = n
 		} else if strings.HasPrefix(arg, "--types=") {
 			expandTypes = strings.TrimPrefix(arg, "--types=")
 		} else if !strings.HasPrefix(arg, "-") {
@@ -1234,13 +1266,30 @@ func cmdKnowledgeEnrich(args []string) {
 		} else if strings.HasPrefix(arg, "--query=") {
 			query = strings.TrimPrefix(arg, "--query=")
 		} else if strings.HasPrefix(arg, "--limit=") {
-			fmt.Sscanf(strings.TrimPrefix(arg, "--limit="), "%d", &limit)
+			val := strings.TrimPrefix(arg, "--limit=")
+			n, perr := strconv.Atoi(val)
+			if perr != nil || n < 1 {
+				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", val)
+				os.Exit(cliutil.ExitUsage)
+			}
+			limit = n
 		} else {
 			cliutil.ExitUnknownFlag(arg, "rvl knowledge")
 		}
 	}
 
 	cfg := api.LoadAndResolveConfig()
+
+	// Number of parallel fetches launched below (each contributes at
+	// most one entry to errs). Used to tell total failure (runtime
+	// error, exit 1) apart from partial degradation (warnings, exit 0).
+	attempted := 3 // patterns, procedures, health
+	if technology != "" {
+		attempted++
+	}
+	if query != "" {
+		attempted++
+	}
 
 	var (
 		mu           sync.Mutex
@@ -1356,6 +1405,15 @@ func cmdKnowledgeEnrich(args []string) {
 
 	wg.Wait()
 
+	// po-cj4s7: when every fetch fails (e.g. expired API key) there is
+	// nothing to enrich with; that is a runtime failure (exit 1), not a
+	// degraded-but-successful enrichment.
+	if len(errs) >= attempted {
+		for _, e := range errs {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", e)
+		}
+		os.Exit(1)
+	}
 	if len(errs) > 0 {
 		for _, e := range errs {
 			fmt.Fprintf(os.Stderr, "Warning: %s\n", e)

@@ -93,7 +93,7 @@ rvl scan --local --target . --format json
 | 1 | Runtime failure (API error, authentication failure, network problem) |
 | 2 | Usage error (unknown command, unknown flag, invalid argument) |
 
-Exceptions: `rvl scan --local` uses its documented CI-gate codes (0 = no critical/high findings, 1 = at least one critical/high finding, 2 = scanner error), and `rvl review` follows its `--enforce` / `--fail-closed` contract (advisory mode always exits 0).
+Exceptions: `rvl scan --local` uses its documented CI-gate codes (0 = no critical/high findings, 1 = at least one critical/high finding, 2 = scanner error), and `rvl review` follows its `--enforce` / `--fail-closed` contract (advisory mode always exits 0). `rvl knowledge enrich` degrades gracefully: it exits 1 only when every parallel fetch fails; partial failures print warnings on stderr and exit 0.
 
 ## License
 
