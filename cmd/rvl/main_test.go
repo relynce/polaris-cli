@@ -154,7 +154,16 @@ func TestUsageErrorContract(t *testing.T) {
 		{"commands unknown flag", []string{"commands", "--bogus"}, "unknown flag: --bogus"},
 		{"status unknown flag", []string{"status", "--bogus"}, "unknown flag: --bogus"},
 		{"scan unknown flag", []string{"scan", "--bogus"}, "unknown flag: --bogus"},
+		{"scan missing service value", []string{"scan", "--service"}, "--service requires a value"},
+		{"scan local missing base value", []string{"scan", "--local", "--base"}, "--base requires a value"},
 		{"review unknown flag", []string{"review", "--bogus"}, "unknown flag: --bogus"},
+		{"review missing commit value", []string{"review", "--commit"}, "--commit requires a value"},
+		{"review bad format", []string{"review", "--format=bogus"}, "--format must be text or json"},
+		{"stpa list-ucas bad limit", []string{"stpa", "list-ucas", "--limit=abc"}, "--limit expects a positive integer"},
+		{"knowledge enrich bad limit", []string{"knowledge", "enrich", "--limit=abc"}, "--limit expects a positive integer"},
+		{"knowledge graph bad depth", []string{"knowledge", "graph", "risk", "R-1", "--depth=abc"}, "--depth expects a positive integer"},
+		{"knowledge graph-search bad limit", []string{"knowledge", "graph-search", "q", "--limit=abc"}, "--limit expects a positive integer"},
+		{"knowledge foresight bad min-strength", []string{"knowledge", "foresight", "--min-strength=2"}, "--min-strength expects a number between 0 and 1"},
 		{"migrate unknown flag", []string{"migrate", "--bogus"}, "unknown flag: --bogus"},
 		{"unknown plugin subcommand", []string{"plugin", "bogus"}, "Unknown plugin command: bogus"},
 		{"unknown config key", []string{"config", "set", "bogus", "v"}, "Unknown config key: bogus"},
@@ -170,6 +179,21 @@ func TestUsageErrorContract(t *testing.T) {
 				t.Errorf("expected stderr to contain %q, got %q", tt.wantStderr, stderr)
 			}
 		})
+	}
+}
+
+// TestEnrichAllFetchesFailExitsOne verifies `rvl knowledge enrich`
+// treats a total fetch failure (here: every request refused by the
+// unroutable test API URL) as a runtime failure per the exit-code
+// contract: errors on stderr and exit 1, not a false success.
+func TestEnrichAllFetchesFailExitsOne(t *testing.T) {
+	home := t.TempDir()
+	_, stderr, code := runRvl(t, home, "knowledge", "enrich")
+	if code != 1 {
+		t.Fatalf("expected exit 1 when every fetch fails, got %d (stderr: %s)", code, stderr)
+	}
+	if !strings.Contains(stderr, "Error:") {
+		t.Errorf("expected fetch errors on stderr, got %q", stderr)
 	}
 }
 
