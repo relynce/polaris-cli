@@ -213,7 +213,11 @@ func CmdInit(args []string) {
 						}
 					}
 					if doUpdate {
-						if err := plugin.InstallPlugin(editorName, ""); err != nil {
+						// SkipContextFiles: Step 4 (AGENTS.md) and Step 5
+						// (CLAUDE.md) own the context files during init, with
+						// their own prompts. Letting the install write them
+						// here would bypass those prompts and double-report.
+						if err := plugin.InstallPluginWithOptions(editorName, "", plugin.InstallOptions{SkipContextFiles: true}); err != nil {
 							fmt.Fprintf(os.Stderr, "Warning: could not update %s skills: %v\n", editorName, err)
 						} else {
 							pluginInstalled = true
@@ -245,7 +249,9 @@ func CmdInit(args []string) {
 					}
 				}
 				if doInstall {
-					if err := plugin.InstallPlugin(editorName, ""); err != nil {
+					// SkipContextFiles: see the update branch above — init's
+					// Steps 4 and 5 handle AGENTS.md/CLAUDE.md interactively.
+					if err := plugin.InstallPluginWithOptions(editorName, "", plugin.InstallOptions{SkipContextFiles: true}); err != nil {
 						fmt.Fprintf(os.Stderr, "Warning: could not install %s skills: %v\n", editorName, err)
 					} else {
 						pluginInstalled = true

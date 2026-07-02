@@ -63,10 +63,14 @@ func TestInstallContextFiles_OptOut(t *testing.T) {
 	installContextFiles(repo, InstallOptions{SkipContextFiles: true}, &buf)
 
 	if _, err := os.Stat(filepath.Join(repo, "AGENTS.md")); !os.IsNotExist(err) {
-		t.Fatalf("AGENTS.md should not exist with --no-context-files, stat err: %v", err)
+		t.Fatalf("AGENTS.md should not exist with SkipContextFiles, stat err: %v", err)
 	}
-	if !strings.Contains(buf.String(), "--no-context-files") {
-		t.Errorf("expected opt-out notice, got: %s", buf.String())
+	// The skip is silent: rvl init sets SkipContextFiles programmatically
+	// (its Steps 4/5 own the context files interactively), so a notice here
+	// would be misleading. The --no-context-files flag prints its own notice
+	// at parse time in CmdPlugin.
+	if buf.Len() != 0 {
+		t.Errorf("expected silent skip, got: %s", buf.String())
 	}
 }
 

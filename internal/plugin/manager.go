@@ -134,11 +134,12 @@ type InstallOptions struct {
 
 // installContextFiles runs the post-install context-file step: it installs or
 // updates the managed AGENTS.md block in the git repository containing
-// startDir. Skipped entirely when opts.SkipContextFiles is set. Failures are
-// warnings — the plugin itself installed fine.
+// startDir. Skipped silently when opts.SkipContextFiles is set — callers that
+// own the skip (the --no-context-files flag, or rvl init's interactive
+// Steps 4/5) report it themselves. Failures are warnings — the plugin itself
+// installed fine.
 func installContextFiles(startDir string, opts InstallOptions, out io.Writer) {
 	if opts.SkipContextFiles {
-		fmt.Fprintln(out, "Skipping AGENTS.md/CLAUDE.md context files (--no-context-files)")
 		return
 	}
 	action, err := EnsureAgentsMdForInstall(startDir, out)
@@ -804,6 +805,9 @@ func CmdPlugin(args []string) {
 	subArgs, isProject := extractFlag(subArgs, "--project")
 	subArgs, noContextFiles := extractFlag(subArgs, "--no-context-files")
 	opts := InstallOptions{SkipContextFiles: noContextFiles}
+	if noContextFiles && (args[0] == "install" || args[0] == "update") {
+		fmt.Println("Skipping AGENTS.md/CLAUDE.md context files (--no-context-files)")
+	}
 
 	var projectRoot string
 	if isProject {
