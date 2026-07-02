@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
+	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 	"github.com/revelara-ai/rvl-cli/internal/config"
 	"github.com/revelara-ai/rvl-cli/internal/display"
 )
@@ -14,9 +15,13 @@ import (
 // CmdSTPAListUCAs is exported for the main dispatcher.
 // CmdSTPA dispatches STPA subcommands.
 func CmdSTPA(args []string) {
+	if cliutil.WantsHelp(args) {
+		printSTPAUsage()
+		return
+	}
 	if len(args) == 0 {
 		printSTPAUsage()
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 	subcmd := args[0]
 	switch subcmd {
@@ -24,12 +29,10 @@ func CmdSTPA(args []string) {
 		cmdSTPAListUCAs(args[1:])
 	case "submit":
 		cmdSTPASubmit(args[1:])
-	case "help", "--help", "-h":
-		printSTPAUsage()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown stpa command: %s\n", subcmd)
 		printSTPAUsage()
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 }
 
@@ -137,12 +140,14 @@ func cmdSTPASubmit(args []string) {
 			filePath = strings.TrimPrefix(arg, "--file=")
 		case strings.HasPrefix(arg, "--service="):
 			service = strings.TrimPrefix(arg, "--service=")
+		default:
+			cliutil.ExitUnknownFlag(arg, "rvl stpa")
 		}
 	}
 	if filePath == "" {
 		fmt.Fprintln(os.Stderr, "Error: --file is required")
 		fmt.Fprintln(os.Stderr, "Usage: rvl stpa submit --file=<path>")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 	repoURL := service // --service flag provides the repo URL for control structure scoping
 
@@ -510,6 +515,8 @@ func cmdSTPAListUCAs(args []string) {
 			controlCode = strings.TrimPrefix(arg, "--control-code=")
 		case strings.HasPrefix(arg, "--limit="):
 			fmt.Sscanf(strings.TrimPrefix(arg, "--limit="), "%d", &limit)
+		default:
+			cliutil.ExitUnknownFlag(arg, "rvl stpa")
 		}
 	}
 

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
+	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 	"github.com/revelara-ai/rvl-cli/internal/display"
 )
 
@@ -224,9 +225,13 @@ type KnowledgeGraphSearchResponse struct {
 
 // CmdKnowledge handles the knowledge command
 func CmdKnowledge(args []string) {
+	if cliutil.WantsHelp(args) {
+		printKnowledgeUsage()
+		return
+	}
 	if len(args) == 0 {
 		printKnowledgeUsage()
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	subcmd := args[0]
@@ -251,12 +256,10 @@ func CmdKnowledge(args []string) {
 		cmdKnowledgeEnrich(args[1:])
 	case "health":
 		cmdKnowledgeHealth()
-	case "help", "--help", "-h":
-		printKnowledgeUsage()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown knowledge command: %s\n", subcmd)
 		printKnowledgeUsage()
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 }
 
@@ -341,7 +344,7 @@ func cmdKnowledgeSearch(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Error: search query required")
 		fmt.Fprintln(os.Stderr, "Usage: rvl knowledge search <query> [--limit=N] [--offset=N] [--min-class=best|good|emerging] [--format=json]")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	// po-ukfmt: --format=json short-circuits the table render so
@@ -364,33 +367,36 @@ func cmdKnowledgeSearch(args []string) {
 			case "best", "good", "emerging":
 			default:
 				fmt.Fprintf(os.Stderr, "Error: --min-class expects best, good, or emerging, got %q\n", minClass)
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 		case strings.HasPrefix(arg, "--limit="):
 			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
 			if perr != nil || n < 1 {
 				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", strings.TrimPrefix(arg, "--limit="))
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			limit = n
 		case strings.HasPrefix(arg, "--offset="):
 			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--offset="))
 			if perr != nil || n < 0 {
 				fmt.Fprintf(os.Stderr, "Error: --offset expects a non-negative integer, got %q\n", strings.TrimPrefix(arg, "--offset="))
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			offset = n
 		case strings.HasPrefix(arg, "--format="):
 			format = strings.TrimPrefix(arg, "--format=")
 		case !strings.HasPrefix(arg, "-"):
 			queryParts = append(queryParts, arg)
+		default:
+			// po-cj4s7: unknown flags must error, not silently no-op.
+			cliutil.ExitUnknownFlag(arg, "rvl knowledge")
 		}
 	}
 
 	query := strings.Join(queryParts, " ")
 	if query == "" {
 		fmt.Fprintln(os.Stderr, "Error: search query required")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	cfg := api.LoadAndResolveConfig()
@@ -478,18 +484,20 @@ func cmdKnowledgeFacts(args []string) {
 			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
 			if perr != nil || n < 1 {
 				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer\n")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			limit = n
 		case strings.HasPrefix(arg, "--offset="):
 			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--offset="))
 			if perr != nil || n < 0 {
 				fmt.Fprintf(os.Stderr, "Error: --offset expects a non-negative integer\n")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			offset = n
 		case strings.HasPrefix(arg, "--format="):
 			format = strings.TrimPrefix(arg, "--format=")
+		default:
+			cliutil.ExitUnknownFlag(arg, "rvl knowledge")
 		}
 	}
 
@@ -569,18 +577,20 @@ func cmdKnowledgeProcedures(args []string) {
 			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
 			if perr != nil || n < 1 {
 				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer\n")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			limit = n
 		case strings.HasPrefix(arg, "--offset="):
 			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--offset="))
 			if perr != nil || n < 0 {
 				fmt.Fprintf(os.Stderr, "Error: --offset expects a non-negative integer\n")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			offset = n
 		case strings.HasPrefix(arg, "--format="):
 			format = strings.TrimPrefix(arg, "--format=")
+		default:
+			cliutil.ExitUnknownFlag(arg, "rvl knowledge")
 		}
 	}
 
@@ -709,25 +719,27 @@ func cmdKnowledgePatterns(args []string) {
 			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--min-occurrences="))
 			if perr != nil || n < 0 {
 				fmt.Fprintf(os.Stderr, "Error: --min-occurrences expects a non-negative integer\n")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			minOccurrences = n
 		case strings.HasPrefix(arg, "--limit="):
 			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
 			if perr != nil || n < 1 {
 				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer\n")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			limit = n
 		case strings.HasPrefix(arg, "--offset="):
 			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--offset="))
 			if perr != nil || n < 0 {
 				fmt.Fprintf(os.Stderr, "Error: --offset expects a non-negative integer\n")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			offset = n
 		case strings.HasPrefix(arg, "--format="):
 			format = strings.TrimPrefix(arg, "--format=")
+		default:
+			cliutil.ExitUnknownFlag(arg, "rvl knowledge")
 		}
 	}
 
@@ -836,7 +848,7 @@ func cmdKnowledgeRelationships(args []string) {
 		fmt.Fprintln(os.Stderr, "Error: entity type and entity ID required")
 		fmt.Fprintln(os.Stderr, "Usage: rvl knowledge relationships <type> <id> [--format=json]")
 		fmt.Fprintln(os.Stderr, "Types: fact, procedure, pattern, service, technology, control")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	var (
@@ -847,13 +859,15 @@ func cmdKnowledgeRelationships(args []string) {
 		switch {
 		case strings.HasPrefix(arg, "--format="):
 			format = strings.TrimPrefix(arg, "--format=")
+		case strings.HasPrefix(arg, "-"):
+			cliutil.ExitUnknownFlag(arg, "rvl knowledge")
 		default:
 			positional = append(positional, arg)
 		}
 	}
 	if len(positional) < 2 {
 		fmt.Fprintln(os.Stderr, "Error: entity type and entity ID required")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 	entityType := positional[0]
 	entityID := positional[1]
@@ -908,7 +922,7 @@ func cmdKnowledgeGraph(args []string) {
 	if len(args) < 2 {
 		fmt.Fprintln(os.Stderr, "Error: entity type and entity ID required")
 		fmt.Fprintln(os.Stderr, "Usage: rvl knowledge graph <type> <id> [--depth=N] [--min-strength=0.3] [--type=causes,mitigates]")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	entityType := args[0]
@@ -924,6 +938,8 @@ func cmdKnowledgeGraph(args []string) {
 			minStrength = strings.TrimPrefix(arg, "--min-strength=")
 		} else if strings.HasPrefix(arg, "--type=") {
 			relationType = strings.TrimPrefix(arg, "--type=")
+		} else {
+			cliutil.ExitUnknownFlag(arg, "rvl knowledge")
 		}
 	}
 
@@ -999,6 +1015,8 @@ func cmdKnowledgeForesight(args []string) {
 			relationTypes = strings.TrimPrefix(arg, "--relation-types=")
 		} else if strings.HasPrefix(arg, "--format=") {
 			format = strings.TrimPrefix(arg, "--format=")
+		} else {
+			cliutil.ExitUnknownFlag(arg, "rvl knowledge")
 		}
 	}
 
@@ -1006,7 +1024,7 @@ func cmdKnowledgeForesight(args []string) {
 		fmt.Fprintln(os.Stderr, "Error: --entity-type and --entity-id are required")
 		fmt.Fprintln(os.Stderr, "Usage: rvl knowledge foresight --entity-type=<type> --entity-id=<id> [options]")
 		fmt.Fprintln(os.Stderr, "Entity types: service, fact, procedure, pattern, technology, control, incident, risk")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	cfg := api.LoadAndResolveConfig()
@@ -1108,7 +1126,7 @@ func cmdKnowledgeGraphSearch(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Error: search query required")
 		fmt.Fprintln(os.Stderr, "Usage: rvl knowledge graph-search <query> [--limit=N] [--depth=N] [--types=causes,mitigates]")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	var queryParts []string
@@ -1125,13 +1143,15 @@ func cmdKnowledgeGraphSearch(args []string) {
 			expandTypes = strings.TrimPrefix(arg, "--types=")
 		} else if !strings.HasPrefix(arg, "-") {
 			queryParts = append(queryParts, arg)
+		} else {
+			cliutil.ExitUnknownFlag(arg, "rvl knowledge")
 		}
 	}
 
 	query := strings.Join(queryParts, " ")
 	if query == "" {
 		fmt.Fprintln(os.Stderr, "Error: search query required")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	cfg := api.LoadAndResolveConfig()
@@ -1215,6 +1235,8 @@ func cmdKnowledgeEnrich(args []string) {
 			query = strings.TrimPrefix(arg, "--query=")
 		} else if strings.HasPrefix(arg, "--limit=") {
 			fmt.Sscanf(strings.TrimPrefix(arg, "--limit="), "%d", &limit)
+		} else {
+			cliutil.ExitUnknownFlag(arg, "rvl knowledge")
 		}
 	}
 

@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/revelara-ai/rvl-cli/internal/api"
+	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 	"github.com/revelara-ai/rvl-cli/internal/config"
 	"github.com/revelara-ai/rvl-cli/internal/plugin"
 	"github.com/revelara-ai/rvl-cli/internal/project"
@@ -96,13 +97,15 @@ func CmdInit(args []string) {
 		case "--project":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --project requires a value")
-				os.Exit(1)
+				os.Exit(cliutil.ExitUsage)
 			}
 			i++
 			projectName = args[i]
 		default:
 			if strings.HasPrefix(args[i], "--project=") {
 				projectName = strings.TrimPrefix(args[i], "--project=")
+			} else {
+				cliutil.ExitUnknownFlag(args[i], "rvl init")
 			}
 		}
 	}

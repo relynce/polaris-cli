@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
+	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 	"github.com/revelara-ai/rvl-cli/internal/display"
 )
 
@@ -32,9 +34,13 @@ type ListEvidenceAPIResponse struct {
 }
 
 func CmdEvidence(args []string) {
-	if len(args) == 0 {
+	if cliutil.WantsHelp(args) {
 		printEvidenceUsage()
 		return
+	}
+	if len(args) == 0 {
+		printEvidenceUsage()
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	subcommand := args[0]
@@ -48,8 +54,9 @@ func CmdEvidence(args []string) {
 	case "verify":
 		cmdEvidenceVerify(subArgs)
 	default:
+		fmt.Fprintf(os.Stderr, "Unknown evidence command: %s\n", subcommand)
 		printEvidenceUsage()
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 }
 
@@ -99,6 +106,8 @@ func cmdEvidenceSubmit(args []string) {
 			gitHash = strings.TrimPrefix(arg, "--git-hash=")
 		} else if strings.HasPrefix(arg, "--format=") {
 			format = strings.TrimPrefix(arg, "--format=")
+		} else {
+			cliutil.ExitUnknownFlag(arg, "rvl evidence")
 		}
 	}
 
@@ -110,21 +119,21 @@ func cmdEvidenceSubmit(args []string) {
 
 	if controlCode == "" {
 		fmt.Fprintln(os.Stderr, "Error: --control is required (e.g., --control=RC-018)")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 	if evidenceType == "" {
 		fmt.Fprintln(os.Stderr, "Error: --type is required (code, test, dashboard, document, configuration, runbook, other)")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 	if name == "" {
 		fmt.Fprintln(os.Stderr, "Error: --name is required")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	if strings.HasPrefix(controlCode, "R-") && !strings.HasPrefix(controlCode, "RC-") {
 		fmt.Fprintf(os.Stderr, "Note: \"%s\" is a risk code, not a control code (RC-XXX).\n", controlCode)
 		fmt.Fprintf(os.Stderr, "Evidence is submitted per control. Use \"rvl risk show %s\" to find mapped controls.\n", controlCode)
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	cfg := api.LoadAndResolveConfig()
@@ -214,9 +223,17 @@ func cmdEvidenceList(args []string) {
 		} else if strings.HasPrefix(arg, "--status=") {
 			status = strings.TrimPrefix(arg, "--status=")
 		} else if strings.HasPrefix(arg, "--limit=") {
-			fmt.Sscanf(strings.TrimPrefix(arg, "--limit="), "%d", &limit)
+			val := strings.TrimPrefix(arg, "--limit=")
+			n, perr := strconv.Atoi(val)
+			if perr != nil || n < 1 {
+				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", val)
+				os.Exit(cliutil.ExitUsage)
+			}
+			limit = n
 		} else if strings.HasPrefix(arg, "--format=") {
 			format = strings.TrimPrefix(arg, "--format=")
+		} else {
+			cliutil.ExitUnknownFlag(arg, "rvl evidence")
 		}
 	}
 
@@ -229,7 +246,7 @@ func cmdEvidenceList(args []string) {
 		}
 		if !validStatuses[status] {
 			fmt.Fprintf(os.Stderr, "Error: invalid --status value %q; must be one of: not_configured, configured, sample, verified\n", status)
-			os.Exit(1)
+			os.Exit(cliutil.ExitUsage)
 		}
 	}
 
@@ -298,13 +315,15 @@ func cmdEvidenceVerify(args []string) {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "Error: evidence ID required")
 		fmt.Fprintln(os.Stderr, "Usage: rvl evidence verify <evidence-id>")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	var format string
 	for _, arg := range args[1:] {
 		if strings.HasPrefix(arg, "--format=") {
 			format = strings.TrimPrefix(arg, "--format=")
+		} else {
+			cliutil.ExitUnknownFlag(arg, "rvl evidence")
 		}
 	}
 

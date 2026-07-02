@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
+	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 	"github.com/revelara-ai/rvl-cli/internal/display"
 	"github.com/revelara-ai/rvl-cli/internal/project"
 )
@@ -61,6 +62,11 @@ type RiskSummary struct {
 
 // CmdReview handles the review command
 func CmdReview(args []string) {
+	if cliutil.WantsHelp(args) {
+		printReviewUsage()
+		return
+	}
+
 	var commitSHA, baseRef, environment, format, projectName string
 	var enforce, failClosed, verbose bool
 
@@ -119,9 +125,7 @@ func CmdReview(args []string) {
 		case args[i] == "--verbose":
 			verbose = true
 		default:
-			fmt.Fprintf(os.Stderr, "Unknown flag: %s\n", args[i])
-			printReviewUsage()
-			os.Exit(1)
+			cliutil.ExitUnknownFlag(args[i], "rvl review")
 		}
 	}
 

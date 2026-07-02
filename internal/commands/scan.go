@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
+	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 	"github.com/revelara-ai/rvl-cli/internal/config"
 	"github.com/revelara-ai/rvl-cli/internal/project"
 	"github.com/revelara-ai/rvl-cli/internal/scanner"
@@ -225,8 +226,73 @@ type ScanResult struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
+func printScanUsage() {
+	fmt.Println(`rvl scan - Submit risk findings to Revelara
+
+Usage:
+  rvl scan --service <name> --stdin       Read findings JSON from stdin
+  rvl scan --service <name> --file <path> Read findings from file
+  rvl scan --service <name> --scan-dir <path>  Merge JSON part files from a directory
+  rvl scan --service <name> --dry-run     Validate without submitting
+  rvl scan --target <path> --file <path>  Scan another project (service auto-resolved from .revelara.yaml)
+
+Common Flags:
+  --service, -s <name>   Service name (or auto-resolved from .revelara.yaml)
+  --target, -t <path>    Project directory (default: cwd)
+  --stdin                Read findings JSON from stdin
+  --file, -f <path>      Read findings from file
+  --scan-dir <path>      Merge all *.json part files from directory
+  --cs-file <path>       Merge control structure from a separate file
+  --dry-run              Validate and print summary without submitting
+  --review               Interactive review mode (default when TTY)
+  --auto-infer           Skip interactive review
+  --ci                   CI mode: JSON output, exit 1 on critical/high
+  --timeout <dur>        HTTP submission timeout (e.g. 90s, 2m; default 60s)
+  --cleanup-on-success   Remove --scan-dir contents after a successful submit
+
+Local Scanner (--local): runs the built-in pattern matchers against a
+codebase without an LLM. Supports CI gating, JSON output, and
+submission to Revelara in one step.
+
+  rvl scan --local --target <path>                Run local scan, print summary
+  rvl scan --local --target <path> --format json  Emit ScanRequest JSON on stdout
+  rvl scan --local --target <path> --service <name> --submit
+                                                  Run local scan AND post to Revelara
+  rvl scan --local --list-matchers                List registered matchers and exit
+  rvl scan --local --target <path> --changed-only Scan only files changed vs. base ref
+  rvl scan --local --target <path> --matchers a,b,c  Run only the listed matcher slugs
+
+  Local Scanner Flags:
+    --format <fmt>                human (default), json, or markdown
+    --source <s>                  With --list-matchers: curated|org-generated
+    --base <ref>                  Base ref for --changed-only
+    --scan-all-on-missing-base    Fall back to full scan if no base ref reachable
+    --mode <enforce|eval>         Scan mode
+    --profile <name>              Matcher profile
+    --pr-comment                  Emit PR sticky-comment markdown
+    --no-dedupe                   Skip cross-agent finding deduplication
+    --no-digest                   Skip digest.compact read/write
+
+  Exit codes for --local:
+    0  No findings, or only low/medium findings
+    1  At least one critical or high finding (CI gate)
+    2  Scanner error (bad config, no base ref, unreadable files)
+
+Examples:
+  echo '{"findings":[...]}' | rvl scan --service checkout-api --stdin
+  rvl scan --local --target . --format json
+  rvl scan --service checkout-api --scan-dir .revelara/scan-parts --cleanup-on-success`)
+}
+
 // CmdScan handles the scan command
 func CmdScan(args []string, version string) {
+	// po-cj4s7: help must print usage to stdout and exit 0 with zero
+	// network calls, before any flag parsing.
+	if cliutil.WantsHelp(args) {
+		printScanUsage()
+		return
+	}
+
 	var service string
 	var inputFile string
 	var csFile string
@@ -391,9 +457,9 @@ func CmdScan(args []string, version string) {
 				// po-c2iff: unrecognized flag. Silently ignoring used to
 				// hide typos and renamed flags (e.g. someone trying the
 				// old --diff after it folded into --changed-only).
-				fmt.Fprintf(os.Stderr, "Error: unrecognized flag %q\n", args[i])
-				fmt.Fprintln(os.Stderr, "Run 'rvl scan --help' for usage.")
-				os.Exit(1)
+				// po-cj4s7: usage errors exit 2 (matches the documented
+				// --local "scanner error" code).
+				cliutil.ExitUnknownFlag(args[i], "rvl scan")
 			} else if service == "" {
 				service = args[i]
 			}

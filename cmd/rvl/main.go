@@ -10,6 +10,7 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 	"github.com/revelara-ai/rvl-cli/internal/commands"
 	"github.com/revelara-ai/rvl-cli/internal/plugin"
 )
@@ -150,7 +151,7 @@ func main() {
 
 	if len(os.Args) < 2 {
 		printUsage()
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	cmd := os.Args[1]
@@ -158,11 +159,19 @@ func main() {
 	case "init":
 		commands.CmdInit(os.Args[2:])
 	case "login":
+		if cliutil.WantsHelp(os.Args[2:]) {
+			fmt.Println("Usage: rvl login\n\nConfigure credentials interactively (API URL, API key, organization).\nFor headless/CI use, set RVL_API_KEY (and optionally RVL_API_URL, RVL_ORG_NAME) instead.")
+			return
+		}
 		commands.CmdLogin()
 	case "logout":
+		if cliutil.WantsHelp(os.Args[2:]) {
+			fmt.Println("Usage: rvl logout\n\nRemove stored credentials from ~/.revelara/config.yaml.")
+			return
+		}
 		commands.CmdLogout()
 	case "status":
-		commands.CmdStatus(version, gitHash)
+		commands.CmdStatus(os.Args[2:], version, gitHash)
 	case "scan":
 		commands.CmdScan(os.Args[2:], version)
 	case "risk":
@@ -196,7 +205,7 @@ func main() {
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
 		printUsage()
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 }
 
@@ -213,9 +222,10 @@ Commands:
   status             Check connection and authentication status
   scan               Submit risk findings to Revelara
   review             Review a commit or PR for reliability risks (CI/CD gate)
-  risk               Manage risk lifecycle (list, close, resolve, etc.)
+  risk               Manage risk lifecycle (list, show, resolve, accept, etc.)
   control            Query reliability controls catalog
   knowledge          Query organizational knowledge base (facts, procedures, patterns)
+  incident           Search indexed incident postmortems
   evidence           Manage control evidence (submit, list, verify)
   stpa               STPA safety analysis tools (list-ucas)
   commands           List available skills and agents from the API
@@ -300,17 +310,21 @@ Review Command:
       --verbose          Show full risk details
 
 Risk Command:
-  rvl risk list [--status=detected] [--service=name]  List risks
+  rvl risk list [--status=applicable] [--service=name] [--limit=N]  List risks
+  rvl risk ready [--limit=N]                          Top unresolved risks by score
   rvl risk show <risk-code>                           Show risk details with mapped controls
-  rvl risk stale [--service=name]                     List stale risks
-  rvl risk close <risk-code> [--reason="..."]         Close a risk
+  rvl risk context <risk-code>                        Full context (controls, knowledge, history)
+  rvl risk stale                                      List stale risks
   rvl risk resolve <risk-code> --reason="..."         Mark risk as resolved
-  rvl risk acknowledge <risk-code> [<risk-code>...]   Acknowledge risks
   rvl risk accept <risk-code> --reason="..."          Accept risk (won't mitigate)
 
 Control Command:
   rvl control list [--category=<cat>]     List controls in catalog
   rvl control show <control-code>         Show control details (e.g., RC-018)
+
+Incident Command:
+  rvl incident search <query> [--limit=N] [--format=table|json]
+                                          Semantic search across indexed postmortems
 
 Examples:
   # Initial setup
@@ -330,9 +344,9 @@ Examples:
   rvl review --commit abc123 --env production --format json
 
   # Manage risks
-  rvl risk list --status=detected
-  rvl risk close R-001 --reason "Fixed by implementing timeout"
-  rvl risk stale --service checkout-api
+  rvl risk list --status=applicable
+  rvl risk resolve R-001 --reason "Fixed by implementing timeout"
+  rvl risk stale
 
   # Query controls catalog
   rvl control list --category=fault_tolerance
@@ -342,6 +356,9 @@ Examples:
   rvl knowledge search "circuit breaker timeout"
   rvl knowledge procedures --control=RC-018
   rvl knowledge patterns --type=failure_mode
+
+  # Search incident postmortems
+  rvl incident search "retry storm cascading failure" --limit=5
 
   # Submit evidence for controls
   rvl evidence submit --control=RC-018 --type=code --name="Circuit breaker impl" --url="https://github.com/..."
@@ -364,5 +381,19 @@ Init Command:
 
 Configuration:
   Credentials are stored in ~/.revelara/config.yaml
-  Never share this file or expose credentials to LLM contexts.`)
+  Never share this file or expose credentials to LLM contexts.
+
+  Environment variables (take precedence over the config file; useful
+  for headless/CI environments with no ~/.revelara/config.yaml):
+    RVL_API_KEY    API key (equivalent to config api_key)
+    RVL_API_URL    API endpoint (equivalent to config api_url)
+    RVL_ORG_NAME   Organization name (equivalent to config org_name)
+
+Exit Codes:
+  0  Success (including help output)
+  1  Runtime failure (API error, authentication failure)
+  2  Usage error (unknown command, unknown flag, invalid argument)
+  Exceptions: 'rvl scan --local' uses the documented gate codes
+  (0 = clean, 1 = critical/high finding, 2 = scanner error) and
+  'rvl review' follows its --enforce/--fail-closed contract.`)
 }

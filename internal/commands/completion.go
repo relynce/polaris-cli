@@ -3,13 +3,19 @@ package commands
 import (
 	"fmt"
 	"os"
+
+	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 )
 
 // CmdCompletion generates shell completion scripts
 func CmdCompletion(args []string) {
+	if cliutil.WantsHelp(args) {
+		printCompletionUsage()
+		return
+	}
 	if len(args) == 0 {
 		printCompletionUsage()
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	switch args[0] {
@@ -19,12 +25,10 @@ func CmdCompletion(args []string) {
 		fmt.Print(zshCompletion)
 	case "fish":
 		fmt.Print(fishCompletion)
-	case "help", "--help", "-h":
-		printCompletionUsage()
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown shell: %s\n", args[0])
 		printCompletionUsage()
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 }
 
@@ -59,7 +63,7 @@ _rvl() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    commands="init login logout status scan risk control knowledge evidence commands plugin completion config version help"
+    commands="init login logout status scan risk control knowledge incident evidence commands plugin completion config version help"
 
     case "${prev}" in
         rvl)
@@ -67,7 +71,11 @@ _rvl() {
             return 0
             ;;
         risk)
-            COMPREPLY=( $(compgen -W "list show stale close resolve acknowledge accept" -- "${cur}") )
+            COMPREPLY=( $(compgen -W "list ready show context stale resolve accept" -- "${cur}") )
+            return 0
+            ;;
+        incident)
+            COMPREPLY=( $(compgen -W "search" -- "${cur}") )
             return 0
             ;;
         control)
@@ -122,6 +130,7 @@ _rvl() {
         'risk:Manage risk lifecycle'
         'control:Query reliability controls catalog'
         'knowledge:Query organizational knowledge base'
+        'incident:Search indexed incident postmortems'
         'evidence:Manage control evidence'
         'commands:List available skills and agents'
         'plugin:Manage editor plugins'
@@ -131,11 +140,12 @@ _rvl() {
         'help:Show help message'
     )
 
-    local -a risk_cmds control_cmds knowledge_cmds evidence_cmds plugin_cmds config_cmds completion_cmds commands_opts editors
+    local -a risk_cmds control_cmds knowledge_cmds incident_cmds evidence_cmds plugin_cmds config_cmds completion_cmds commands_opts editors
 
-    risk_cmds=('list' 'show' 'stale' 'close' 'resolve' 'acknowledge' 'accept')
+    risk_cmds=('list' 'ready' 'show' 'context' 'stale' 'resolve' 'accept')
     control_cmds=('list' 'show')
     knowledge_cmds=('search' 'procedures' 'patterns')
+    incident_cmds=('search')
     evidence_cmds=('submit' 'list' 'verify')
     plugin_cmds=('install' 'update' 'list' 'remove')
     config_cmds=('show' 'set')
@@ -150,6 +160,7 @@ _rvl() {
             risk)       compadd "${risk_cmds[@]}" ;;
             control)    compadd "${control_cmds[@]}" ;;
             knowledge)  compadd "${knowledge_cmds[@]}" ;;
+            incident)   compadd "${incident_cmds[@]}" ;;
             evidence)   compadd "${evidence_cmds[@]}" ;;
             plugin)     compadd "${plugin_cmds[@]}" ;;
             config)     compadd "${config_cmds[@]}" ;;
@@ -184,6 +195,7 @@ complete -c rvl -n "__fish_use_subcommand" -a "scan" -d "Submit risk findings to
 complete -c rvl -n "__fish_use_subcommand" -a "risk" -d "Manage risk lifecycle"
 complete -c rvl -n "__fish_use_subcommand" -a "control" -d "Query reliability controls catalog"
 complete -c rvl -n "__fish_use_subcommand" -a "knowledge" -d "Query organizational knowledge base"
+complete -c rvl -n "__fish_use_subcommand" -a "incident" -d "Search indexed incident postmortems"
 complete -c rvl -n "__fish_use_subcommand" -a "evidence" -d "Manage control evidence"
 complete -c rvl -n "__fish_use_subcommand" -a "commands" -d "List available skills and agents"
 complete -c rvl -n "__fish_use_subcommand" -a "plugin" -d "Manage editor plugins"
@@ -194,12 +206,15 @@ complete -c rvl -n "__fish_use_subcommand" -a "help" -d "Show help message"
 
 # risk subcommands
 complete -c rvl -n "__fish_seen_subcommand_from risk" -a "list" -d "List risks"
+complete -c rvl -n "__fish_seen_subcommand_from risk" -a "ready" -d "Top unresolved risks by score"
 complete -c rvl -n "__fish_seen_subcommand_from risk" -a "show" -d "Show risk details"
+complete -c rvl -n "__fish_seen_subcommand_from risk" -a "context" -d "Show full risk context"
 complete -c rvl -n "__fish_seen_subcommand_from risk" -a "stale" -d "List stale risks"
-complete -c rvl -n "__fish_seen_subcommand_from risk" -a "close" -d "Close a risk"
 complete -c rvl -n "__fish_seen_subcommand_from risk" -a "resolve" -d "Mark risk as resolved"
-complete -c rvl -n "__fish_seen_subcommand_from risk" -a "acknowledge" -d "Acknowledge risks"
 complete -c rvl -n "__fish_seen_subcommand_from risk" -a "accept" -d "Accept risk"
+
+# incident subcommands
+complete -c rvl -n "__fish_seen_subcommand_from incident" -a "search" -d "Search incident postmortems"
 
 # control subcommands
 complete -c rvl -n "__fish_seen_subcommand_from control" -a "list" -d "List controls"

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
+	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 	"github.com/revelara-ai/rvl-cli/internal/config"
 	"github.com/revelara-ai/rvl-cli/internal/project"
 )
@@ -411,6 +412,8 @@ func ListInstalledAgents(args []string) {
 			fmt.Println("\nList installed agent lenses available to the scanner.")
 			fmt.Println("Default editor: claude.")
 			return
+		default:
+			cliutil.ExitUnknownFlag(a, "rvl plugin")
 		}
 	}
 
@@ -740,13 +743,22 @@ func installAll(projectRoot string) {
 	fmt.Println()
 }
 
+// pluginUsage returns the usage text for `rvl plugin`.
+func pluginUsage() string {
+	return fmt.Sprintf("Usage: rvl plugin <command>\n\nCommands:\n  install <agent>             Install skills for agent (%s)\n  install <agent> --project   Install to current project directory\n  install --all               Auto-detect and install to all agents\n  install --all --project     Auto-detect and install project-locally\n  update [agent]              Update skills to latest version\n  update --all                Update all installed plugins\n  list                        List installed skills\n  agents [--editor=NAME]      List installed agent lenses (default: claude)\n  editors                     List all supported agents\n  remove <agent>              Remove installed skills\n  remove <agent> --project    Remove project-local skills\n\nExamples:\n  rvl plugin install claude         Install Claude Code plugin\n  rvl plugin install gemini --project  Install to project directory\n  rvl plugin install --all          Install to all detected agents\n  rvl plugin update                 Update all installed plugins\n  rvl plugin agents --json          List installed lenses as JSON (used by /rvl:scan)\n  rvl plugin editors                Show all supported agents\n  rvl plugin list                   Show installed plugins\n", EditorNames())
+}
+
 // CmdPlugin handles plugin management (install, update, list, remove).
 func CmdPlugin(args []string) {
-	editorList := EditorNames()
+	// po-cj4s7: help prints usage to stdout and exits 0, no network.
+	if cliutil.WantsHelp(args) {
+		fmt.Print(pluginUsage())
+		return
+	}
 
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: rvl plugin <command>\n\nCommands:\n  install <agent>             Install skills for agent (%s)\n  install <agent> --project   Install to current project directory\n  install --all               Auto-detect and install to all agents\n  install --all --project     Auto-detect and install project-locally\n  update [agent]              Update skills to latest version\n  update --all                Update all installed plugins\n  list                        List installed skills\n  agents [--editor=NAME]      List installed agent lenses (default: claude)\n  editors                     List all supported agents\n  remove <agent>              Remove installed skills\n  remove <agent> --project    Remove project-local skills\n\nExamples:\n  rvl plugin install claude         Install Claude Code plugin\n  rvl plugin install gemini --project  Install to project directory\n  rvl plugin install --all          Install to all detected agents\n  rvl plugin update                 Update all installed plugins\n  rvl plugin agents --json          List installed lenses as JSON (used by /rvl:scan)\n  rvl plugin editors                Show all supported agents\n  rvl plugin list                   Show installed plugins\n", editorList)
-		os.Exit(1)
+		fmt.Fprint(os.Stderr, pluginUsage())
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	// Extract --project flag from subcommand args
@@ -769,8 +781,8 @@ func CmdPlugin(args []string) {
 			fmt.Fprintln(os.Stderr, "Error: agent name required")
 			fmt.Fprintln(os.Stderr, "Usage: rvl plugin install <agent> [--project]")
 			fmt.Fprintln(os.Stderr, "       rvl plugin install --all [--project]")
-			fmt.Fprintf(os.Stderr, "Available: %s\n", editorList)
-			os.Exit(1)
+			fmt.Fprintf(os.Stderr, "Available: %s\n", EditorNames())
+			os.Exit(cliutil.ExitUsage)
 		}
 		if subArgs[0] == "--all" {
 			installAll(projectRoot)
@@ -800,7 +812,7 @@ func CmdPlugin(args []string) {
 		if len(subArgs) < 1 {
 			fmt.Fprintln(os.Stderr, "Error: agent name required")
 			fmt.Fprintln(os.Stderr, "Usage: rvl plugin remove <agent> [--project]")
-			os.Exit(1)
+			os.Exit(cliutil.ExitUsage)
 		}
 		editor := subArgs[0]
 		if err := RemovePlugin(editor, projectRoot); err != nil {
@@ -810,7 +822,7 @@ func CmdPlugin(args []string) {
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown plugin command: %s\n", args[0])
 		fmt.Fprintln(os.Stderr, "Usage: rvl plugin <install|update|list|editors|remove>")
-		os.Exit(1)
+		os.Exit(cliutil.ExitUsage)
 	}
 }
 

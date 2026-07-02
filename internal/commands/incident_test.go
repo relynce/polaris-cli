@@ -51,7 +51,10 @@ func TestFormatIncidentSearchTable_TruncatesLongTitle(t *testing.T) {
 }
 
 func TestParseIncidentSearchArgs_DefaultLimit(t *testing.T) {
-	q, limit, format := parseIncidentSearchArgs([]string{"circuit breaker"})
+	q, limit, format, err := parseIncidentSearchArgs([]string{"circuit breaker"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if q != "circuit breaker" {
 		t.Errorf("expected query 'circuit breaker', got %q", q)
 	}
@@ -64,7 +67,10 @@ func TestParseIncidentSearchArgs_DefaultLimit(t *testing.T) {
 }
 
 func TestParseIncidentSearchArgs_WithFlags(t *testing.T) {
-	q, limit, format := parseIncidentSearchArgs([]string{"retry", "storm", "--limit=5", "--format=json"})
+	q, limit, format, err := parseIncidentSearchArgs([]string{"retry", "storm", "--limit=5", "--format=json"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if q != "retry storm" {
 		t.Errorf("expected query 'retry storm', got %q", q)
 	}
@@ -77,8 +83,35 @@ func TestParseIncidentSearchArgs_WithFlags(t *testing.T) {
 }
 
 func TestParseIncidentSearchArgs_EmptyQuery(t *testing.T) {
-	q, _, _ := parseIncidentSearchArgs([]string{"--limit=5"})
+	q, _, _, err := parseIncidentSearchArgs([]string{"--limit=5"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if q != "" {
 		t.Errorf("expected empty query, got %q", q)
+	}
+}
+
+func TestParseIncidentSearchArgs_Errors(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{"unknown flag", []string{"query", "--severity=high"}, "unknown flag: --severity=high"},
+		{"non-numeric limit", []string{"query", "--limit=abc"}, `--limit expects a positive integer, got "abc"`},
+		{"zero limit", []string{"query", "--limit=0"}, `--limit expects a positive integer, got "0"`},
+		{"negative limit", []string{"query", "--limit=-3"}, `--limit expects a positive integer, got "-3"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, _, err := parseIncidentSearchArgs(tt.args)
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if err.Error() != tt.wantErr {
+				t.Errorf("expected error %q, got %q", tt.wantErr, err.Error())
+			}
+		})
 	}
 }

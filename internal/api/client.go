@@ -23,7 +23,7 @@ func LoadAndResolveConfig() *config.Config {
 		os.Exit(1)
 	}
 	if cfg == nil || cfg.APIKey == "" {
-		fmt.Fprintln(os.Stderr, "Error: Not configured. Run 'rvl login' first.")
+		fmt.Fprintln(os.Stderr, "Error: Not configured. Run 'rvl login' first, or set RVL_API_KEY for headless/CI use.")
 		os.Exit(1)
 	}
 	if err := ResolveOrganizationID(cfg); err != nil {
@@ -178,7 +178,9 @@ func MakeAPIRequestWithTimeout(cfg *config.Config, method, url string, body []by
 		return nil, fmt.Errorf("authentication failed (401) - run 'rvl login' to reconfigure (API key may be expired or for a different environment)")
 	}
 	if resp.StatusCode == 403 {
-		return nil, fmt.Errorf("forbidden (403) - your API key authenticated but lacks access to this resource; check 'rvl config show' for the active organization or pass --org to override")
+		// po-cj4s7: there is no --org flag; point at the real remediation
+		// surfaces (config file key or env var).
+		return nil, fmt.Errorf("forbidden (403) - your API key authenticated but lacks access to this resource; check 'rvl config show' for the active organization, then fix it with 'rvl config set org_name <name>' or the RVL_ORG_NAME environment variable")
 	}
 	if resp.StatusCode >= 400 {
 		// po-ug34g: prefer the spec-shaped {error, message} envelope
