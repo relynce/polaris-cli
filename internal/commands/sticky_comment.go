@@ -35,7 +35,7 @@ type PRCommentInput struct {
 	EffectiveTolerance  *EffectiveTolerance
 	MeasuredState       int
 	HasRevelaraYAML     bool
-	PolarisRiskListURL  string // e.g., "https://polaris.example.com/risks?service=..."
+	RevelaraRiskListURL string // e.g., "https://app.revelara.ai/risks?service=..."
 }
 
 // ServiceBudget represents a single touched service's budget slice for
@@ -55,7 +55,8 @@ type ServiceBudget struct {
 // comment instead of creating duplicates.
 //
 // Reference: docs/designs/local-scanner-developer-workflow.md
-//   § "PR Comment UX" and § "Sticky Comment Structure".
+//
+//	§ "PR Comment UX" and § "Sticky Comment Structure".
 func RenderPRComment(in PRCommentInput) string {
 	var sb strings.Builder
 	sb.WriteString(StickyCommentMarker)
@@ -141,9 +142,9 @@ func RenderPRComment(in PRCommentInput) string {
 		sb.WriteByte('\n')
 	}
 
-	// Footer with Polaris link + waiver hint
-	if in.PolarisRiskListURL != "" {
-		fmt.Fprintf(&sb, "[View full report in Polaris →](%s)\n\n", in.PolarisRiskListURL)
+	// Footer with Revelara link + waiver hint
+	if in.RevelaraRiskListURL != "" {
+		fmt.Fprintf(&sb, "[View full report in Revelara →](%s)\n\n", in.RevelaraRiskListURL)
 	}
 	sb.WriteString("**Waiver options:** add a yaml waiver to `.revelara.yaml`, comment `/rvl waive <matcher>` ")
 	sb.WriteString("(requires `reliability-waiver` permission), or apply the `rvl-waiver-required` label.\n")
