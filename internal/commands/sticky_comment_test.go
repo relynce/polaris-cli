@@ -188,20 +188,20 @@ func TestRenderPRComment_LeadingProvenanceFromMostSevere(t *testing.T) {
 	}
 }
 
-func TestRenderPRComment_PolarisLinkIncluded(t *testing.T) {
-	in := PRCommentInput{PolarisRiskListURL: "https://polaris.example.com/risks?service=auth"}
+func TestRenderPRComment_RevelaraLinkIncluded(t *testing.T) {
+	in := PRCommentInput{RevelaraRiskListURL: "https://app.revelara.ai/risks?service=auth"}
 	got := RenderPRComment(in)
-	if !strings.Contains(got, "View full report in Polaris") {
-		t.Errorf("Polaris link must appear when URL is provided")
+	if !strings.Contains(got, "View full report in Revelara") {
+		t.Errorf("Revelara link must appear when URL is provided")
 	}
-	if !strings.Contains(got, "https://polaris.example.com/risks?service=auth") {
-		t.Errorf("Polaris URL must appear verbatim")
+	if !strings.Contains(got, "https://app.revelara.ai/risks?service=auth") {
+		t.Errorf("Revelara URL must appear verbatim")
 	}
 }
 
 func TestRenderPRComment_DeterministicForSameInputs(t *testing.T) {
 	in := PRCommentInput{
-		Service: "auth-service",
+		Service:  "auth-service",
 		NetDelta: 5,
 		EffectiveTolerance: &EffectiveTolerance{
 			ToleranceTarget: 250,
