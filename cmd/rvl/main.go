@@ -178,6 +178,8 @@ func main() {
 		commands.CmdRisk(os.Args[2:])
 	case "control":
 		commands.CmdControl(os.Args[2:])
+	case "report":
+		commands.CmdReport(os.Args[2:])
 	case "knowledge":
 		commands.CmdKnowledge(os.Args[2:])
 	case "incident":
