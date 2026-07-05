@@ -91,23 +91,45 @@ func printEvidenceUsage() {
 
 func cmdEvidenceSubmit(args []string) {
 	var controlCode, evidenceType, name, url, description, gitHash, format string
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--control=") {
-			controlCode = strings.TrimPrefix(arg, "--control=")
-		} else if strings.HasPrefix(arg, "--type=") {
-			evidenceType = strings.TrimPrefix(arg, "--type=")
-		} else if strings.HasPrefix(arg, "--name=") {
-			name = strings.TrimPrefix(arg, "--name=")
-		} else if strings.HasPrefix(arg, "--url=") {
-			url = strings.TrimPrefix(arg, "--url=")
-		} else if strings.HasPrefix(arg, "--description=") {
-			description = strings.TrimPrefix(arg, "--description=")
-		} else if strings.HasPrefix(arg, "--git-hash=") {
-			gitHash = strings.TrimPrefix(arg, "--git-hash=")
-		} else if strings.HasPrefix(arg, "--format=") {
-			format = strings.TrimPrefix(arg, "--format=")
-		} else {
+	// po-i24do.11: accept both "--flag value" and "--flag=value".
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		var v string
+		var err error
+		switch {
+		case arg == "--control" || strings.HasPrefix(arg, "--control="):
+			v, i, err = cliutil.FlagValue(args, i, "--control")
+			controlCode = v
+		case arg == "--type" || strings.HasPrefix(arg, "--type="):
+			v, i, err = cliutil.FlagValue(args, i, "--type")
+			evidenceType = v
+		case arg == "--name" || strings.HasPrefix(arg, "--name="):
+			v, i, err = cliutil.FlagValue(args, i, "--name")
+			name = v
+		case arg == "--url" || strings.HasPrefix(arg, "--url="):
+			v, i, err = cliutil.FlagValue(args, i, "--url")
+			url = v
+		case arg == "--description" || strings.HasPrefix(arg, "--description="):
+			v, i, err = cliutil.FlagValue(args, i, "--description")
+			description = v
+		case arg == "--git-hash" || strings.HasPrefix(arg, "--git-hash="):
+			v, i, err = cliutil.FlagValue(args, i, "--git-hash")
+			gitHash = v
+		case arg == "--format" || strings.HasPrefix(arg, "--format="):
+			v, i, err = cliutil.FlagValue(args, i, "--format")
+			format = v
+		default:
 			cliutil.ExitUnknownFlag(arg, "rvl evidence")
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(cliutil.ExitUsage)
+		}
+	}
+	if format != "" {
+		if err := cliutil.ValidateFormat(format, "json"); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(cliutil.ExitUsage)
 		}
 	}
 
@@ -215,25 +237,46 @@ func cmdEvidenceSubmit(args []string) {
 func cmdEvidenceList(args []string) {
 	var controlCode, evidenceType, status, format string
 	limit := 20
-	for _, arg := range args {
-		if strings.HasPrefix(arg, "--control=") {
-			controlCode = strings.TrimPrefix(arg, "--control=")
-		} else if strings.HasPrefix(arg, "--type=") {
-			evidenceType = strings.TrimPrefix(arg, "--type=")
-		} else if strings.HasPrefix(arg, "--status=") {
-			status = strings.TrimPrefix(arg, "--status=")
-		} else if strings.HasPrefix(arg, "--limit=") {
-			val := strings.TrimPrefix(arg, "--limit=")
-			n, perr := strconv.Atoi(val)
-			if perr != nil || n < 1 {
-				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", val)
-				os.Exit(cliutil.ExitUsage)
+	// po-i24do.11: accept both "--flag value" and "--flag=value".
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		var v string
+		var err error
+		switch {
+		case arg == "--control" || strings.HasPrefix(arg, "--control="):
+			v, i, err = cliutil.FlagValue(args, i, "--control")
+			controlCode = v
+		case arg == "--type" || strings.HasPrefix(arg, "--type="):
+			v, i, err = cliutil.FlagValue(args, i, "--type")
+			evidenceType = v
+		case arg == "--status" || strings.HasPrefix(arg, "--status="):
+			v, i, err = cliutil.FlagValue(args, i, "--status")
+			status = v
+		case arg == "--limit" || strings.HasPrefix(arg, "--limit="):
+			v, i, err = cliutil.FlagValue(args, i, "--limit")
+			if err == nil {
+				n, perr := strconv.Atoi(v)
+				if perr != nil || n < 1 {
+					fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", v)
+					os.Exit(cliutil.ExitUsage)
+				}
+				limit = n
 			}
-			limit = n
-		} else if strings.HasPrefix(arg, "--format=") {
-			format = strings.TrimPrefix(arg, "--format=")
-		} else {
+		case arg == "--format" || strings.HasPrefix(arg, "--format="):
+			v, i, err = cliutil.FlagValue(args, i, "--format")
+			format = v
+		default:
 			cliutil.ExitUnknownFlag(arg, "rvl evidence")
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(cliutil.ExitUsage)
+		}
+	}
+	if format != "" {
+		if err := cliutil.ValidateFormat(format, "json"); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(cliutil.ExitUsage)
 		}
 	}
 
@@ -319,11 +362,26 @@ func cmdEvidenceVerify(args []string) {
 	}
 
 	var format string
-	for _, arg := range args[1:] {
-		if strings.HasPrefix(arg, "--format=") {
-			format = strings.TrimPrefix(arg, "--format=")
-		} else {
+	rest := args[1:]
+	// po-i24do.11: accept both "--flag value" and "--flag=value".
+	for i := 0; i < len(rest); i++ {
+		arg := rest[i]
+		switch {
+		case arg == "--format" || strings.HasPrefix(arg, "--format="):
+			v, next, err := cliutil.FlagValue(rest, i, "--format")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(cliutil.ExitUsage)
+			}
+			format, i = v, next
+		default:
 			cliutil.ExitUnknownFlag(arg, "rvl evidence")
+		}
+	}
+	if format != "" {
+		if err := cliutil.ValidateFormat(format, "json"); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(cliutil.ExitUsage)
 		}
 	}
 

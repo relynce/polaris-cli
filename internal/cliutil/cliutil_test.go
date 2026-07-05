@@ -28,3 +28,36 @@ func TestWantsHelp(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateFormat(t *testing.T) {
+	if err := ValidateFormat("json", "table", "json"); err != nil {
+		t.Errorf("json should be valid: %v", err)
+	}
+	if err := ValidateFormat("table", "table", "json"); err != nil {
+		t.Errorf("table should be valid: %v", err)
+	}
+	err := ValidateFormat("yaml", "table", "json")
+	if err == nil {
+		t.Fatal("yaml should be invalid")
+	}
+	if got := err.Error(); got != `invalid --format "yaml" (valid: table, json)` {
+		t.Errorf("unexpected message: %q", got)
+	}
+}
+
+func TestFlagValue(t *testing.T) {
+	// equals form: value in same token, index unchanged.
+	v, next, err := FlagValue([]string{"--format=json"}, 0, "--format")
+	if err != nil || v != "json" || next != 0 {
+		t.Fatalf("equals form: v=%q next=%d err=%v", v, next, err)
+	}
+	// space form: value in next token, index advanced.
+	v, next, err = FlagValue([]string{"--format", "json"}, 0, "--format")
+	if err != nil || v != "json" || next != 1 {
+		t.Fatalf("space form: v=%q next=%d err=%v", v, next, err)
+	}
+	// space form with no following token errors.
+	if _, _, err := FlagValue([]string{"--format"}, 0, "--format"); err == nil {
+		t.Fatal("expected error for missing value")
+	}
+}
