@@ -2,11 +2,44 @@ package commands
 
 import (
 	"fmt"
+	"net"
+	"net/url"
 	"os"
 
 	"github.com/revelara-ai/rvl-cli/internal/cliutil"
 	"github.com/revelara-ai/rvl-cli/internal/config"
 )
+
+// validateAPIURL rejects api_url values that would send the bearer API
+// key in cleartext. po-i24do.20: any scheme was previously accepted, so
+// `rvl config set api_url http://…` transmitted the key over plaintext
+// HTTP. Only https:// is allowed, except for loopback hosts (localhost,
+// 127.0.0.1, ::1) where http is the normal local-dev convention and no
+// key ever crosses the network.
+func validateAPIURL(raw string) error {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("invalid api_url %q: %v", raw, err)
+	}
+	if u.Scheme == "https" {
+		return nil
+	}
+	if u.Scheme == "http" && isLoopbackHost(u.Hostname()) {
+		return nil
+	}
+	return fmt.Errorf("api_url must use https:// (http:// is only allowed for localhost); got %q", raw)
+}
+
+// isLoopbackHost reports whether host is a loopback name or address.
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
+}
 
 // maskConfigValue masks sensitive config values before echoing them
 // back to the terminal. po-cj4s7: `rvl config set api_key <key>` used
@@ -63,6 +96,10 @@ func CmdConfig(args []string) {
 		}
 		switch key {
 		case "api_url":
+			if err := validateAPIURL(value); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(cliutil.ExitUsage)
+			}
 			cfg.APIURL = value
 		case "api_key":
 			cfg.APIKey = value
