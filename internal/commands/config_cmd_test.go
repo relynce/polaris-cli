@@ -24,3 +24,28 @@ func TestMaskConfigValue(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateAPIURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{"https allowed", "https://api.revelara.ai", false},
+		{"https with path allowed", "https://api.revelara.ai/v1", false},
+		{"http localhost allowed", "http://localhost:8080", false},
+		{"http 127.0.0.1 allowed", "http://127.0.0.1:8080", false},
+		{"http ipv6 loopback allowed", "http://[::1]:8080", false},
+		{"http public rejected", "http://api.revelara.ai", true},
+		{"http lan ip rejected", "http://10.0.0.5:8080", true},
+		{"non-http scheme rejected", "ftp://api.revelara.ai", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateAPIURL(tt.url)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateAPIURL(%q) error = %v, wantErr %v", tt.url, err, tt.wantErr)
+			}
+		})
+	}
+}

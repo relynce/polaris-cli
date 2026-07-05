@@ -318,7 +318,10 @@ func runRegexMatcher(m Matcher, relPath string, src []byte, lineStarts []int) []
 			if p.NegateRegex != nil && negationMatchesNear(p, src, start, end, lineStarts, line) {
 				continue
 			}
-			snippet := snippetFromOffsets(src, start, end)
+			// po-i24do.19: redact credential material (connection-string
+			// passwords, API-key tokens) before the snippet is embedded in a
+			// finding Narrative that scan --submit posts to the API.
+			snippet := redactSecrets(snippetFromOffsets(src, start, end))
 			out = append(out, Candidate{
 				Slug:        m.Slug,
 				File:        relPath,

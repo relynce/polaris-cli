@@ -115,3 +115,39 @@ func TestParseIncidentSearchArgs_Errors(t *testing.T) {
 		})
 	}
 }
+
+// po-i24do.11: "--flag value" (space form) is accepted alongside
+// "--flag=value", and an invalid --format errors instead of silently
+// rendering a table.
+func TestParseIncidentSearchArgs_SpaceForm(t *testing.T) {
+	q, limit, format, err := parseIncidentSearchArgs([]string{"retry", "storm", "--limit", "5", "--format", "json"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if q != "retry storm" {
+		t.Errorf("expected query 'retry storm', got %q", q)
+	}
+	if limit != 5 {
+		t.Errorf("expected limit 5, got %d", limit)
+	}
+	if format != "json" {
+		t.Errorf("expected format 'json', got %q", format)
+	}
+}
+
+func TestParseIncidentSearchArgs_InvalidFormatErrors(t *testing.T) {
+	_, _, _, err := parseIncidentSearchArgs([]string{"query", "--format=yaml"})
+	if err == nil {
+		t.Fatal("expected error for invalid --format, got nil")
+	}
+	if got := err.Error(); got != `invalid --format "yaml" (valid: table, json)` {
+		t.Errorf("unexpected error: %q", got)
+	}
+}
+
+func TestParseIncidentSearchArgs_MissingFormatValueErrors(t *testing.T) {
+	_, _, _, err := parseIncidentSearchArgs([]string{"query", "--format"})
+	if err == nil {
+		t.Fatal("expected error for --format with no value, got nil")
+	}
+}

@@ -117,24 +117,52 @@ func parseIncidentSearchArgs(args []string) (query string, limit int, format str
 	limit = 10
 	format = "table"
 	var queryParts []string
-	for _, arg := range args {
+	// po-i24do.11: accept both "--flag value" and "--flag=value" and
+	// validate --format so an invalid value errors instead of silently
+	// falling through to the table render.
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		var limitVal string
+		var haveLimit bool
+		var fmtVal string
+		var haveFmt bool
 		switch {
 		case strings.HasPrefix(arg, "--limit="):
-			val := strings.TrimPrefix(arg, "--limit=")
-			n, perr := strconv.Atoi(val)
-			if perr != nil || n < 1 {
-				return "", 0, "", fmt.Errorf("--limit expects a positive integer, got %q", val)
+			limitVal, haveLimit = strings.TrimPrefix(arg, "--limit="), true
+		case arg == "--limit":
+			if i+1 >= len(args) {
+				return "", 0, "", fmt.Errorf("--limit requires a value")
 			}
-			limit = n
+			i++
+			limitVal, haveLimit = args[i], true
 		case strings.HasPrefix(arg, "--format="):
-			format = strings.TrimPrefix(arg, "--format=")
+			fmtVal, haveFmt = strings.TrimPrefix(arg, "--format="), true
+		case arg == "--format":
+			if i+1 >= len(args) {
+				return "", 0, "", fmt.Errorf("--format requires a value")
+			}
+			i++
+			fmtVal, haveFmt = args[i], true
 		case strings.HasPrefix(arg, "-"):
 			return "", 0, "", fmt.Errorf("unknown flag: %s", arg)
 		default:
 			queryParts = append(queryParts, arg)
 		}
+		if haveLimit {
+			n, perr := strconv.Atoi(limitVal)
+			if perr != nil || n < 1 {
+				return "", 0, "", fmt.Errorf("--limit expects a positive integer, got %q", limitVal)
+			}
+			limit = n
+		}
+		if haveFmt {
+			format = fmtVal
+		}
 	}
 	query = strings.Join(queryParts, " ")
+	if err := cliutil.ValidateFormat(format, "table", "json"); err != nil {
+		return "", 0, "", err
+	}
 	return query, limit, format, nil
 }
 

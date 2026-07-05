@@ -158,6 +158,14 @@ func cmdControlList(args []string) {
 			cliutil.ExitUnknownFlag(arg, "rvl control")
 		}
 	}
+	// po-i24do.11: validate --format so an invalid value errors instead of
+	// silently rendering a table.
+	if format != "" {
+		if err := cliutil.ValidateFormat(format, "table", "json"); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(cliutil.ExitUsage)
+		}
+	}
 
 	cfg := api.LoadAndResolveConfig()
 
@@ -236,6 +244,14 @@ func cmdControlShow(args []string) {
 			cliutil.ExitUnknownFlag(arg, "rvl control")
 		default:
 			positional = append(positional, arg)
+		}
+	}
+	// po-i24do.11: validate --format so an invalid value errors instead of
+	// silently rendering a table.
+	if format != "" {
+		if err := cliutil.ValidateFormat(format, "table", "json"); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(cliutil.ExitUsage)
 		}
 	}
 	if len(positional) == 0 {

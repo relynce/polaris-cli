@@ -359,37 +359,61 @@ func cmdKnowledgeSearch(args []string) {
 		minClass   string
 	)
 
-	for _, arg := range args {
+	// po-i24do.11: accept both "--flag value" and "--flag=value".
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		var v string
+		var err error
 		switch {
-		case strings.HasPrefix(arg, "--min-class="):
-			minClass = strings.TrimPrefix(arg, "--min-class=")
-			switch minClass {
-			case "best", "good", "emerging":
-			default:
-				fmt.Fprintf(os.Stderr, "Error: --min-class expects best, good, or emerging, got %q\n", minClass)
-				os.Exit(cliutil.ExitUsage)
+		case arg == "--min-class" || strings.HasPrefix(arg, "--min-class="):
+			v, i, err = cliutil.FlagValue(args, i, "--min-class")
+			minClass = v
+			if err == nil {
+				switch minClass {
+				case "best", "good", "emerging":
+				default:
+					fmt.Fprintf(os.Stderr, "Error: --min-class expects best, good, or emerging, got %q\n", minClass)
+					os.Exit(cliutil.ExitUsage)
+				}
 			}
-		case strings.HasPrefix(arg, "--limit="):
-			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
-			if perr != nil || n < 1 {
-				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", strings.TrimPrefix(arg, "--limit="))
-				os.Exit(cliutil.ExitUsage)
+		case arg == "--limit" || strings.HasPrefix(arg, "--limit="):
+			v, i, err = cliutil.FlagValue(args, i, "--limit")
+			if err == nil {
+				n, perr := strconv.Atoi(v)
+				if perr != nil || n < 1 {
+					fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", v)
+					os.Exit(cliutil.ExitUsage)
+				}
+				limit = n
 			}
-			limit = n
-		case strings.HasPrefix(arg, "--offset="):
-			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--offset="))
-			if perr != nil || n < 0 {
-				fmt.Fprintf(os.Stderr, "Error: --offset expects a non-negative integer, got %q\n", strings.TrimPrefix(arg, "--offset="))
-				os.Exit(cliutil.ExitUsage)
+		case arg == "--offset" || strings.HasPrefix(arg, "--offset="):
+			v, i, err = cliutil.FlagValue(args, i, "--offset")
+			if err == nil {
+				n, perr := strconv.Atoi(v)
+				if perr != nil || n < 0 {
+					fmt.Fprintf(os.Stderr, "Error: --offset expects a non-negative integer, got %q\n", v)
+					os.Exit(cliutil.ExitUsage)
+				}
+				offset = n
 			}
-			offset = n
-		case strings.HasPrefix(arg, "--format="):
-			format = strings.TrimPrefix(arg, "--format=")
+		case arg == "--format" || strings.HasPrefix(arg, "--format="):
+			v, i, err = cliutil.FlagValue(args, i, "--format")
+			format = v
 		case !strings.HasPrefix(arg, "-"):
 			queryParts = append(queryParts, arg)
 		default:
 			// po-cj4s7: unknown flags must error, not silently no-op.
 			cliutil.ExitUnknownFlag(arg, "rvl knowledge")
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(cliutil.ExitUsage)
+		}
+	}
+	if format != "" {
+		if err := cliutil.ValidateFormat(format, "table", "json"); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(cliutil.ExitUsage)
 		}
 	}
 
@@ -472,32 +496,56 @@ func cmdKnowledgeFacts(args []string) {
 		offset                               = 0
 	)
 
-	for _, arg := range args {
+	// po-i24do.11: accept both "--flag value" and "--flag=value".
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		var v string
+		var err error
 		switch {
-		case strings.HasPrefix(arg, "--vertical="):
-			vertical = strings.TrimPrefix(arg, "--vertical=")
-		case strings.HasPrefix(arg, "--technology="):
-			technology = strings.TrimPrefix(arg, "--technology=")
-		case strings.HasPrefix(arg, "--status="):
-			status = strings.TrimPrefix(arg, "--status=")
-		case strings.HasPrefix(arg, "--limit="):
-			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
-			if perr != nil || n < 1 {
-				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer\n")
-				os.Exit(cliutil.ExitUsage)
+		case arg == "--vertical" || strings.HasPrefix(arg, "--vertical="):
+			v, i, err = cliutil.FlagValue(args, i, "--vertical")
+			vertical = v
+		case arg == "--technology" || strings.HasPrefix(arg, "--technology="):
+			v, i, err = cliutil.FlagValue(args, i, "--technology")
+			technology = v
+		case arg == "--status" || strings.HasPrefix(arg, "--status="):
+			v, i, err = cliutil.FlagValue(args, i, "--status")
+			status = v
+		case arg == "--limit" || strings.HasPrefix(arg, "--limit="):
+			v, i, err = cliutil.FlagValue(args, i, "--limit")
+			if err == nil {
+				n, perr := strconv.Atoi(v)
+				if perr != nil || n < 1 {
+					fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer\n")
+					os.Exit(cliutil.ExitUsage)
+				}
+				limit = n
 			}
-			limit = n
-		case strings.HasPrefix(arg, "--offset="):
-			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--offset="))
-			if perr != nil || n < 0 {
-				fmt.Fprintf(os.Stderr, "Error: --offset expects a non-negative integer\n")
-				os.Exit(cliutil.ExitUsage)
+		case arg == "--offset" || strings.HasPrefix(arg, "--offset="):
+			v, i, err = cliutil.FlagValue(args, i, "--offset")
+			if err == nil {
+				n, perr := strconv.Atoi(v)
+				if perr != nil || n < 0 {
+					fmt.Fprintf(os.Stderr, "Error: --offset expects a non-negative integer\n")
+					os.Exit(cliutil.ExitUsage)
+				}
+				offset = n
 			}
-			offset = n
-		case strings.HasPrefix(arg, "--format="):
-			format = strings.TrimPrefix(arg, "--format=")
+		case arg == "--format" || strings.HasPrefix(arg, "--format="):
+			v, i, err = cliutil.FlagValue(args, i, "--format")
+			format = v
 		default:
 			cliutil.ExitUnknownFlag(arg, "rvl knowledge")
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(cliutil.ExitUsage)
+		}
+	}
+	if format != "" {
+		if err := cliutil.ValidateFormat(format, "table", "json"); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(cliutil.ExitUsage)
 		}
 	}
 
@@ -563,34 +611,59 @@ func cmdKnowledgeProcedures(args []string) {
 		offset                                          = 0
 	)
 
-	for _, arg := range args {
+	// po-i24do.11: accept both "--flag value" and "--flag=value".
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		var v string
+		var err error
 		switch {
-		case strings.HasPrefix(arg, "--vertical="):
-			vertical = strings.TrimPrefix(arg, "--vertical=")
-		case strings.HasPrefix(arg, "--technology="):
-			technology = strings.TrimPrefix(arg, "--technology=")
-		case strings.HasPrefix(arg, "--type="):
-			procType = strings.TrimPrefix(arg, "--type=")
-		case strings.HasPrefix(arg, "--control="):
-			control = strings.TrimPrefix(arg, "--control=")
-		case strings.HasPrefix(arg, "--limit="):
-			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
-			if perr != nil || n < 1 {
-				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer\n")
-				os.Exit(cliutil.ExitUsage)
+		case arg == "--vertical" || strings.HasPrefix(arg, "--vertical="):
+			v, i, err = cliutil.FlagValue(args, i, "--vertical")
+			vertical = v
+		case arg == "--technology" || strings.HasPrefix(arg, "--technology="):
+			v, i, err = cliutil.FlagValue(args, i, "--technology")
+			technology = v
+		case arg == "--type" || strings.HasPrefix(arg, "--type="):
+			v, i, err = cliutil.FlagValue(args, i, "--type")
+			procType = v
+		case arg == "--control" || strings.HasPrefix(arg, "--control="):
+			v, i, err = cliutil.FlagValue(args, i, "--control")
+			control = v
+		case arg == "--limit" || strings.HasPrefix(arg, "--limit="):
+			v, i, err = cliutil.FlagValue(args, i, "--limit")
+			if err == nil {
+				n, perr := strconv.Atoi(v)
+				if perr != nil || n < 1 {
+					fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer\n")
+					os.Exit(cliutil.ExitUsage)
+				}
+				limit = n
 			}
-			limit = n
-		case strings.HasPrefix(arg, "--offset="):
-			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--offset="))
-			if perr != nil || n < 0 {
-				fmt.Fprintf(os.Stderr, "Error: --offset expects a non-negative integer\n")
-				os.Exit(cliutil.ExitUsage)
+		case arg == "--offset" || strings.HasPrefix(arg, "--offset="):
+			v, i, err = cliutil.FlagValue(args, i, "--offset")
+			if err == nil {
+				n, perr := strconv.Atoi(v)
+				if perr != nil || n < 0 {
+					fmt.Fprintf(os.Stderr, "Error: --offset expects a non-negative integer\n")
+					os.Exit(cliutil.ExitUsage)
+				}
+				offset = n
 			}
-			offset = n
-		case strings.HasPrefix(arg, "--format="):
-			format = strings.TrimPrefix(arg, "--format=")
+		case arg == "--format" || strings.HasPrefix(arg, "--format="):
+			v, i, err = cliutil.FlagValue(args, i, "--format")
+			format = v
 		default:
 			cliutil.ExitUnknownFlag(arg, "rvl knowledge")
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(cliutil.ExitUsage)
+		}
+	}
+	if format != "" {
+		if err := cliutil.ValidateFormat(format, "table", "json"); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(cliutil.ExitUsage)
 		}
 	}
 
@@ -709,37 +782,63 @@ func cmdKnowledgePatterns(args []string) {
 		offset                        = 0
 	)
 
-	for _, arg := range args {
+	// po-i24do.11: accept both "--flag value" and "--flag=value".
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		var v string
+		var err error
 		switch {
-		case strings.HasPrefix(arg, "--vertical="):
-			vertical = strings.TrimPrefix(arg, "--vertical=")
-		case strings.HasPrefix(arg, "--type="):
-			patternType = strings.TrimPrefix(arg, "--type=")
-		case strings.HasPrefix(arg, "--min-occurrences="):
-			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--min-occurrences="))
-			if perr != nil || n < 0 {
-				fmt.Fprintf(os.Stderr, "Error: --min-occurrences expects a non-negative integer\n")
-				os.Exit(cliutil.ExitUsage)
+		case arg == "--vertical" || strings.HasPrefix(arg, "--vertical="):
+			v, i, err = cliutil.FlagValue(args, i, "--vertical")
+			vertical = v
+		case arg == "--type" || strings.HasPrefix(arg, "--type="):
+			v, i, err = cliutil.FlagValue(args, i, "--type")
+			patternType = v
+		case arg == "--min-occurrences" || strings.HasPrefix(arg, "--min-occurrences="):
+			v, i, err = cliutil.FlagValue(args, i, "--min-occurrences")
+			if err == nil {
+				n, perr := strconv.Atoi(v)
+				if perr != nil || n < 0 {
+					fmt.Fprintf(os.Stderr, "Error: --min-occurrences expects a non-negative integer\n")
+					os.Exit(cliutil.ExitUsage)
+				}
+				minOccurrences = n
 			}
-			minOccurrences = n
-		case strings.HasPrefix(arg, "--limit="):
-			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--limit="))
-			if perr != nil || n < 1 {
-				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer\n")
-				os.Exit(cliutil.ExitUsage)
+		case arg == "--limit" || strings.HasPrefix(arg, "--limit="):
+			v, i, err = cliutil.FlagValue(args, i, "--limit")
+			if err == nil {
+				n, perr := strconv.Atoi(v)
+				if perr != nil || n < 1 {
+					fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer\n")
+					os.Exit(cliutil.ExitUsage)
+				}
+				limit = n
 			}
-			limit = n
-		case strings.HasPrefix(arg, "--offset="):
-			n, perr := strconv.Atoi(strings.TrimPrefix(arg, "--offset="))
-			if perr != nil || n < 0 {
-				fmt.Fprintf(os.Stderr, "Error: --offset expects a non-negative integer\n")
-				os.Exit(cliutil.ExitUsage)
+		case arg == "--offset" || strings.HasPrefix(arg, "--offset="):
+			v, i, err = cliutil.FlagValue(args, i, "--offset")
+			if err == nil {
+				n, perr := strconv.Atoi(v)
+				if perr != nil || n < 0 {
+					fmt.Fprintf(os.Stderr, "Error: --offset expects a non-negative integer\n")
+					os.Exit(cliutil.ExitUsage)
+				}
+				offset = n
 			}
-			offset = n
-		case strings.HasPrefix(arg, "--format="):
-			format = strings.TrimPrefix(arg, "--format=")
+		case arg == "--format" || strings.HasPrefix(arg, "--format="):
+			v, i, err = cliutil.FlagValue(args, i, "--format")
+			format = v
 		default:
 			cliutil.ExitUnknownFlag(arg, "rvl knowledge")
+		}
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(cliutil.ExitUsage)
+		}
+	}
+	if format != "" {
+		if err := cliutil.ValidateFormat(format, "table", "json"); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(cliutil.ExitUsage)
 		}
 	}
 
