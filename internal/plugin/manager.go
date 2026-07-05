@@ -449,23 +449,52 @@ type AgentEntry struct {
 // ListInstalledAgents prints the list of agent files (lenses) installed for the
 // given editor. Default editor is "claude". Output is human-readable by default;
 // pass --json for machine-readable output (used by the scan skill).
-func ListInstalledAgents(args []string) {
-	editor := "claude"
-	asJSON := false
+// parseAgentsListFlags parses the flags for `rvl plugin agents`. It accepts
+// --format=json|table (aligning with the rest of the CLI) and keeps --json as
+// a back-compat alias for --format=json (po-i24do.7). It returns the editor,
+// whether JSON output was requested, whether --help was passed, and any flag
+// error (invalid --format value or unknown flag).
+func parseAgentsListFlags(args []string) (editor string, asJSON, wantHelp bool, err error) {
+	editor = "claude"
 	for _, a := range args {
 		switch {
+		case strings.HasPrefix(a, "--format="):
+			format := strings.TrimPrefix(a, "--format=")
+			switch format {
+			case "json":
+				asJSON = true
+			case "table", "text", "":
+				asJSON = false
+			default:
+				return editor, asJSON, false, fmt.Errorf("invalid --format %q (valid: table, json)", format)
+			}
 		case a == "--json":
 			asJSON = true
 		case strings.HasPrefix(a, "--editor="):
 			editor = strings.TrimPrefix(a, "--editor=")
 		case a == "--help", a == "-h":
-			fmt.Println("Usage: rvl plugin agents [--editor=<name>] [--json]")
-			fmt.Println("\nList installed agent lenses available to the scanner.")
-			fmt.Println("Default editor: claude.")
-			return
+			return editor, asJSON, true, nil
 		default:
-			cliutil.ExitUnknownFlag(a, "rvl plugin")
+			return editor, asJSON, false, fmt.Errorf("unknown flag: %s", a)
 		}
+	}
+	return editor, asJSON, false, nil
+}
+
+func ListInstalledAgents(args []string) {
+	editor, asJSON, wantHelp, err := parseAgentsListFlags(args)
+	if err != nil {
+		if strings.HasPrefix(err.Error(), "unknown flag: ") {
+			cliutil.ExitUnknownFlag(strings.TrimPrefix(err.Error(), "unknown flag: "), "rvl plugin")
+		}
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(cliutil.ExitUsage)
+	}
+	if wantHelp {
+		fmt.Println("Usage: rvl plugin agents [--editor=<name>] [--format=json|table]")
+		fmt.Println("\nList installed agent lenses available to the scanner.")
+		fmt.Println("Default editor: claude. --json is an alias for --format=json.")
+		return
 	}
 
 	agentsDir, err := installedAgentsDir(editor)
