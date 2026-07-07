@@ -134,7 +134,7 @@ _rvl() {
         'knowledge:Query organizational knowledge base'
         'incident:Search indexed incident postmortems'
         'evidence:Manage control evidence'
-        'stpa:STPA safety analysis tools'
+        'stpa:STPA-inspired safety analysis tools'
         'commands:List available skills and agents'
         'plugin:Manage editor plugins'
         'completion:Generate shell completion scripts'
@@ -205,7 +205,7 @@ complete -c rvl -n "__fish_use_subcommand" -a "report" -d "Generate a SOC 2 read
 complete -c rvl -n "__fish_use_subcommand" -a "knowledge" -d "Query organizational knowledge base"
 complete -c rvl -n "__fish_use_subcommand" -a "incident" -d "Search indexed incident postmortems"
 complete -c rvl -n "__fish_use_subcommand" -a "evidence" -d "Manage control evidence"
-complete -c rvl -n "__fish_use_subcommand" -a "stpa" -d "STPA safety analysis tools"
+complete -c rvl -n "__fish_use_subcommand" -a "stpa" -d "STPA-inspired safety analysis tools"
 complete -c rvl -n "__fish_use_subcommand" -a "commands" -d "List available skills and agents"
 complete -c rvl -n "__fish_use_subcommand" -a "plugin" -d "Manage editor plugins"
 complete -c rvl -n "__fish_use_subcommand" -a "completion" -d "Generate shell completion scripts"
@@ -242,7 +242,7 @@ complete -c rvl -n "__fish_seen_subcommand_from evidence" -a "verify" -d "Verify
 
 # stpa subcommands
 complete -c rvl -n "__fish_seen_subcommand_from stpa" -a "list-ucas" -d "List unsafe control actions"
-complete -c rvl -n "__fish_seen_subcommand_from stpa" -a "submit" -d "Submit STPA analysis"
+complete -c rvl -n "__fish_seen_subcommand_from stpa" -a "submit" -d "Submit STPA-inspired design review findings"
 
 # commands options
 complete -c rvl -n "__fish_seen_subcommand_from commands" -l "skills" -d "Show only skills"

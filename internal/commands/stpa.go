@@ -38,14 +38,14 @@ func CmdSTPA(args []string) {
 }
 
 func printSTPAUsage() {
-	fmt.Println(`rvl stpa - STPA safety analysis tools
+	fmt.Println(`rvl stpa - STPA-inspired safety analysis tools
 
 Usage:
   rvl stpa <subcommand> [options]
 
 Subcommands:
-  submit            Submit STPA findings from a design review JSON file
-  list-ucas         List unsafe control actions identified by STPA analysis
+  submit            Submit findings from an STPA-inspired design review JSON file
+  list-ucas         List candidate unsafe control actions from STPA-inspired analysis
 
 Submit Options:
   --file=<path>         Path to STPA design review JSON output (required)
@@ -63,7 +63,11 @@ Examples:
   rvl stpa list-ucas
   rvl stpa list-ucas --source=design_review
   rvl stpa list-ucas --uca-type=not_provided --limit=20
-  rvl stpa list-ucas --control-code=RC-018`)
+  rvl stpa list-ucas --control-code=RC-018
+
+Note: Revelara's analysis is STPA-inspired (adapted from Systems-Theoretic Process
+Analysis, Leveson & Thomas, MIT). Findings are candidates for engineer review, not
+a substitute for expert hazard analysis of safety-critical systems.`)
 }
 
 // -- Submit types --
