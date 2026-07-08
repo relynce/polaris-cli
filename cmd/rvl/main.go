@@ -229,7 +229,7 @@ Commands:
   knowledge          Query organizational knowledge base (facts, procedures, patterns)
   incident           Search indexed incident postmortems
   evidence           Manage control evidence (submit, list, verify)
-  stpa               STPA safety analysis tools (list-ucas)
+  stpa               STPA-inspired safety analysis tools (list-ucas)
   commands           List available skills and agents from the API
   plugin             Manage editor plugins (install, update, list, remove)
   completion         Generate shell completion scripts (bash, zsh, fish)
