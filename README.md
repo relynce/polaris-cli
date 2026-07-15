@@ -72,9 +72,20 @@ blocks are marker-delimited and updated in place on reinstall/update. Pass
 | `rvl config` | View and edit configuration |
 | `rvl version` | Show version info |
 
+## Feature maturity
+
+Not every command and feature is equally mature. Most of the CLI is
+production-ready; a few features are still **beta** or **alpha**. Notably,
+`rvl scan --local` and its `.revelara.yaml` `scanner:` section are
+**alpha** (experimental, not production-ready), and `rvl scan --auto-infer`
+is alpha too. See the [feature maturity reference](docs/maturity.md) for
+the full breakdown and tier definitions.
+
 ## Configuration
 
 Credentials are stored in `~/.revelara/config.yaml` (mode 0600). The CLI never exposes credentials to LLM contexts.
+
+Project configuration lives in `.revelara.yaml` at your repo root; see the [`.revelara.yaml` reference](docs/revelara-yaml.md) for every field.
 
 ### Environment Variables
 
