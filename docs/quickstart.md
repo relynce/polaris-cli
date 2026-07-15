@@ -213,6 +213,8 @@ Run `rvl init` to install skills. If you've already run init, try `rvl init --fo
 
 4. **Read the Full User Guide** — For comprehensive coverage of all features, see the [User Guide](user-guide.md).
 
+5. **Check Feature Maturity** — Some features are still beta or alpha (notably the local scanner). See the [feature maturity reference](maturity.md) before relying on them in CI.
+
 ## Questions?
 
 If you get stuck, check the [Troubleshooting](#troubleshooting) section above or reach out to your Revelara administrator.

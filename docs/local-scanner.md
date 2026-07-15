@@ -1,5 +1,10 @@
 # Local Reliability Scanner
 
+> **Alpha.** The local scanner is an alpha-level feature and is not
+> production ready. Matchers, config, defaults, and behavior may change
+> without notice between releases. Expect false positives and gaps; do
+> not gate production CI on it yet.
+
 The `rvl scan --local` command runs a built-in pattern matcher set against
 a codebase without an LLM, network call, or API key. It produces structured
 findings you can submit to Revelara, gate CI on, or pipe to other tools.
@@ -221,11 +226,35 @@ scanner:
   # Run matchers against test files.
   # By default, matchers opt in via Matcher.AppliesToTests.
   include_tests: false
+
+  # CI gate: enforce (default, exit non-zero on critical/high) or eval
+  # (report but always exit 0).
+  mode: enforce
+
+  # Named matcher profile: fast (regex-only, every commit) or full (all).
+  profile: fast
+
+  # Per-service CI budget override (merged over org defaults by Polaris).
+  tolerance:
+    target: 200
+    headroom_pct: 10
+
+  # Time-bounded, reason-bearing exceptions (audit-logged on --submit).
+  waivers:
+    - matcher: missing-timeout
+      paths: ["internal/legacy/**/*.go"]
+      expires: "2026-12-31"
+      reason: "legacy client scheduled for removal in Q4"
 ```
 
 Suppressed matcher slugs are echoed back to Revelara on `--submit` via
 `ScanMetadata.ExcludedMatchers`. The Phase 2 feedback loop uses these
 to mark org-generated matchers as noisy and stop regenerating them.
+
+**This is a summary.** For every field, its valid values, defaults,
+precedence against CLI flags and env vars, and the `profiles`,
+`strict_enforcement`, and waiver semantics, see the
+[`.revelara.yaml` configuration reference](./revelara-yaml.md).
 
 ## Listing the matcher catalog
 
@@ -326,6 +355,10 @@ actually — but the first form is the documented order).
 
 ## See also
 
+- [`.revelara.yaml` configuration reference](./revelara-yaml.md) — every
+  config field, valid values, defaults, and precedence
+- [Feature maturity](./maturity.md) — where the local scanner sits
+  relative to production-ready features
 - [Scanner matcher contributor guide](./scanner-matchers.md) — how
   to add a new matcher to the curated set
 - PRD: `docs/PRD/local-reliability-scanner.md` (in the polaris repo)
