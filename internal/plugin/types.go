@@ -15,11 +15,23 @@ type PluginInfo struct {
 	Location  string `json:"location"`
 }
 
+// CurrentSkillNames lists the skill directory names a current (v0.26.0+)
+// non-Claude install creates. They are rvl- prefixed so commands surface as
+// /rvl-scan instead of a bare /scan that collides with other tools. Claude
+// namespaces via its plugin manifest and installs flat commands/, not these
+// dirs. Used to detect an existing install; a subset of PolarisSkillNames.
+var CurrentSkillNames = []string{
+	"rvl-ask", "rvl-cast-template", "rvl-evidence", "rvl-fix",
+	"rvl-review", "rvl-risks", "rvl-scan", "rvl-status", "rvl-stpa-review",
+}
+
 // PolarisSkillNames lists all Revelara skill directory names for cleanup.
 // Includes current skills, agent-as-skill entries, and legacy names.
-var PolarisSkillNames = []string{
-	// Current skills (v0.7.0+)
+var PolarisSkillNames = append(append([]string{}, CurrentSkillNames...), []string{
+	// Legacy bare skills (pre-0.26.0, non-Claude editors) — kept for cleanup so an
+	// update from an older install removes the un-prefixed directories.
 	"ask", "evidence", "fix", "review", "risks", "scan", "status",
+	"cast-template", "stpa-review",
 	// Agent-as-skill entries (v0.19.0+, Tier 3 editors, rvl- prefix)
 	"rvl-ai-reliability-pro", "rvl-capacity-planning-pro", "rvl-cicd-pro",
 	"rvl-cost-governance-pro", "rvl-deployment-excellence-pro",
@@ -47,7 +59,7 @@ var PolarisSkillNames = []string{
 	"post-incident-guidance", "reliability-culture-guidance",
 	"resilience-guidance", "security-supply-chain-guidance",
 	"slo-monitoring-guidance",
-}
+}...)
 
 // SavePluginInfo persists plugin metadata to ~/.revelara/plugins.json
 func SavePluginInfo(editor, version, location string) error {

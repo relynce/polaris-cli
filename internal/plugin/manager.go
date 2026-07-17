@@ -12,9 +12,9 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"sort"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -422,7 +422,7 @@ func ListInstalledPlugins() {
 			}
 			localDir := filepath.Join(root, def.LocalDir)
 			// Check if any current skill dirs exist
-			for _, skill := range PolarisSkillNames[:7] {
+			for _, skill := range CurrentSkillNames {
 				if _, err := os.Stat(filepath.Join(localDir, skill)); err == nil {
 					localEditors = append(localEditors, name)
 					break
@@ -757,7 +757,6 @@ func EnableGeminiSubagents() error {
 	fmt.Println("✓ Enabled experimental subagents in ~/.gemini/settings.json")
 	return nil
 }
-
 
 // PrintPostInstallInstructions prints editor-specific next steps
 func PrintPostInstallInstructions(editor, location string) {
