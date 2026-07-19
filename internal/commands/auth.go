@@ -245,7 +245,11 @@ func CmdStatus(args []string, version, gitHash string) {
 		currentVersion := strings.TrimPrefix(version, "v")
 		if plugin.SemVerNewer(currentVersion, latestVersion) {
 			fmt.Fprintf(os.Stderr, "\nCLI update available: v%s -> v%s\n", currentVersion, latestVersion)
-			fmt.Fprintf(os.Stderr, "  Upgrade: go install github.com/revelara-ai/rvl-cli/cmd/rvl@latest\n")
+			// Recommend the command matching the install method (po-t1mu7);
+			// unknown installs get only the releases link below.
+			if cmd := upgradeCommand(); cmd != "" {
+				fmt.Fprintf(os.Stderr, "  Upgrade: %s\n", cmd)
+			}
 			fmt.Fprintf(os.Stderr, "  Release: https://github.com/revelara-ai/rvl-cli/releases/latest\n")
 		} else {
 			fmt.Fprintf(os.Stderr, "\nCLI: v%s (up to date)\n", currentVersion)
