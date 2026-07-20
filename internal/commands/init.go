@@ -3,6 +3,7 @@ package commands
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -294,6 +295,7 @@ func CmdInit(args []string) {
 	fmt.Println()
 
 	// Step 5: Set up CLAUDE.md managed block (Claude editor only)
+	claudeMdAction := ""
 	if pluginInstalled {
 		home, _ := os.UserHomeDir()
 		claudeMdSrc := filepath.Join(home, ".revelara", "marketplace", "plugins", "revelara", "CLAUDE.md")
@@ -302,6 +304,7 @@ func CmdInit(args []string) {
 			if claudeErr != nil {
 				fmt.Fprintf(os.Stderr, "Warning: could not set up CLAUDE.md: %v\n", claudeErr)
 			} else {
+				claudeMdAction = claudeAction
 				switch claudeAction {
 				case "created":
 					fmt.Println("Created CLAUDE.md with Revelara managed block")
@@ -342,7 +345,7 @@ func CmdInit(args []string) {
 	}
 
 	// Step 8: Print summary
-	printInitSummary(cfg, pluginInstalled, pluginVersion, credentialsConfigured, agentsMdAction)
+	printInitSummary(os.Stdout, cfg, pluginInstalled, pluginVersion, credentialsConfigured, agentsMdAction, claudeMdAction)
 }
 
 // buildProjectConfig creates a ProjectConfig interactively or from defaults.
@@ -535,36 +538,45 @@ func EnsureAgentsMd(gitRoot string, force, yesAll bool) (string, error) {
 	return plugin.EnsureAgentsMd(gitRoot, true)
 }
 
-func printInitSummary(cfg *project.ProjectConfig, pluginInstalled bool, pluginVersion string, credentialsConfigured bool, agentsMdAction string) {
-	fmt.Println("=== Revelara Initialization Complete ===")
-	fmt.Println()
-	fmt.Printf("Project: %s\n", cfg.Project)
-	fmt.Printf("Components: %d\n", len(cfg.Components))
+func printInitSummary(w io.Writer, cfg *project.ProjectConfig, pluginInstalled bool, pluginVersion string, credentialsConfigured bool, agentsMdAction, claudeMdAction string) {
+	fmt.Fprintln(w, "=== Revelara Initialization Complete ===")
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "Project: %s\n", cfg.Project)
+	fmt.Fprintf(w, "Components: %d\n", len(cfg.Components))
 	for _, c := range cfg.Components {
-		fmt.Printf("  - %s (%s)\n", c.Name, c.Path)
+		fmt.Fprintf(w, "  - %s (%s)\n", c.Name, c.Path)
 	}
-	fmt.Println()
+	fmt.Fprintln(w)
 	if pluginInstalled {
-		fmt.Printf("Skills: Installed (v%s)\n", pluginVersion)
+		fmt.Fprintf(w, "Skills: Installed (v%s)\n", pluginVersion)
 	} else {
-		fmt.Println("Skills: Not installed")
+		fmt.Fprintln(w, "Skills: Not installed")
 	}
-	if agentsMdAction != "" && agentsMdAction != "skipped" {
-		fmt.Printf("AGENTS.md: %s\n", agentsMdAction)
+	agentsMdWritten := agentsMdAction != "" && agentsMdAction != "skipped"
+	claudeMdWritten := claudeMdAction != "" && claudeMdAction != "skipped"
+	if agentsMdWritten {
+		fmt.Fprintf(w, "AGENTS.md: %s\n", agentsMdAction)
+	}
+	if claudeMdWritten {
+		fmt.Fprintf(w, "CLAUDE.md: %s\n", claudeMdAction)
 	}
 	if credentialsConfigured {
-		fmt.Println("Credentials: Configured")
+		fmt.Fprintln(w, "Credentials: Configured")
 	} else {
-		fmt.Println("Credentials: Not configured — run 'rvl login'")
+		fmt.Fprintln(w, "Credentials: Not configured — run 'rvl login'")
 	}
-	fmt.Println()
-	fmt.Println("Next steps:")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Next steps:")
 	if !credentialsConfigured {
-		fmt.Println("  1. rvl login")
-		fmt.Println("  2. rvl plugin install claude")
+		fmt.Fprintln(w, "  1. rvl login")
+		fmt.Fprintln(w, "  2. rvl plugin install claude")
 	} else if !pluginInstalled {
-		fmt.Println("  1. rvl plugin install claude")
+		fmt.Fprintln(w, "  1. rvl plugin install claude")
 	}
-	fmt.Println("  - Commit .revelara.yaml and AGENTS.md to your repository")
-	fmt.Println("  - Open Claude Code in this directory and run /rvl:scan to scan for reliability risks")
+	if claudeMdWritten {
+		fmt.Fprintln(w, "  - Commit .revelara.yaml, AGENTS.md, and CLAUDE.md to your repository")
+	} else {
+		fmt.Fprintln(w, "  - Commit .revelara.yaml and AGENTS.md to your repository")
+	}
+	fmt.Fprintln(w, "  - Open Claude Code in this directory and run /rvl:scan to scan for reliability risks")
 }

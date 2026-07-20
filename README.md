@@ -52,11 +52,16 @@ After `rvl init` (or `rvl plugin install`), the following slash commands are ava
 | `/rvl:status` | Check CLI connectivity and plugin health |
 
 When run inside a git repository, `rvl plugin install` (any agent, or `--all`) also
-adds a managed Revelara block to the repo's `AGENTS.md` — read natively by most
+maintains a managed Revelara block in the repo's `AGENTS.md` — read natively by most
 agent runtimes — with the `rvl` context-tool cheat sheet and skill reference.
-Claude Code installs additionally maintain the same block in `CLAUDE.md`. The
-blocks are marker-delimited and updated in place on reinstall/update. Pass
-`--no-context-files` to `rvl plugin install`/`update` to skip them.
+Claude Code installs additionally maintain a managed block in `CLAUDE.md`. The two
+blocks are intentionally different: the `AGENTS.md` block is agent-neutral, while the
+`CLAUDE.md` block adds Claude-specific content such as expert-agent routing via the
+Task tool. Each file is created if it doesn't exist; otherwise the marker-delimited
+block is appended or updated in place on reinstall/update, leaving the rest of the
+file untouched. Pass `--no-context-files` to `rvl plugin install`/`update` to skip
+them. (Avoid symlinking one file to the other — both writers manage the same marker
+pair, so the last one to run would replace the other's block.)
 
 ## CLI Commands
 
