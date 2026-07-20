@@ -295,29 +295,27 @@ func CmdInit(args []string) {
 	fmt.Println()
 
 	// Step 5: Set up CLAUDE.md managed block (Claude editor only)
+	// po-pw4p6: the block is composed from the CLI's own templates, so this
+	// no longer depends on the plugin tarball's CLAUDE.md being on disk.
 	claudeMdAction := ""
 	if pluginInstalled {
-		home, _ := os.UserHomeDir()
-		claudeMdSrc := filepath.Join(home, ".revelara", "marketplace", "plugins", "revelara", "CLAUDE.md")
-		if _, statErr := os.Stat(claudeMdSrc); statErr == nil {
-			claudeAction, claudeErr := plugin.EnsureClaudeMd(gitRoot, claudeMdSrc, yesAll || force)
-			if claudeErr != nil {
-				fmt.Fprintf(os.Stderr, "Warning: could not set up CLAUDE.md: %v\n", claudeErr)
-			} else {
-				claudeMdAction = claudeAction
-				switch claudeAction {
-				case "created":
-					fmt.Println("Created CLAUDE.md with Revelara managed block")
-				case "appended":
-					fmt.Println("Appended Revelara managed block to CLAUDE.md")
-				case "updated":
-					fmt.Println("Updated Revelara managed block in CLAUDE.md")
-				case "skipped":
-					fmt.Println("CLAUDE.md: Skipped")
-				}
+		claudeAction, claudeErr := plugin.EnsureClaudeMd(gitRoot, yesAll || force)
+		if claudeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not set up CLAUDE.md: %v\n", claudeErr)
+		} else {
+			claudeMdAction = claudeAction
+			switch claudeAction {
+			case "created":
+				fmt.Println("Created CLAUDE.md with Revelara managed block")
+			case "appended":
+				fmt.Println("Appended Revelara managed block to CLAUDE.md")
+			case "updated":
+				fmt.Println("Updated Revelara managed block in CLAUDE.md")
+			case "skipped":
+				fmt.Println("CLAUDE.md: Skipped")
 			}
-			fmt.Println()
 		}
+		fmt.Println()
 	}
 
 	// Step 6: Check credentials
