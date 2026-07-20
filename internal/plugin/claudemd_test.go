@@ -9,16 +9,8 @@ import (
 
 // po-dhtnw: EnsureClaudeMd had no test coverage at all, which let init's
 // reporting bugs go unnoticed. These tests lock in the writer's contract.
-
-func writeTemplate(t *testing.T, content string) string {
-	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "CLAUDE.md")
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
+// po-pw4p6: the block is now composed from the shared agentsMdTemplate plus
+// Claude-specific extras, single-sourcing everything the two files share.
 
 func readClaudeMd(t *testing.T, gitRoot string) string {
 	t.Helper()
@@ -29,11 +21,29 @@ func readClaudeMd(t *testing.T, gitRoot string) string {
 	return string(b)
 }
 
+// The single-source guarantee: every byte of the agent-neutral AGENTS.md
+// template appears verbatim in the CLAUDE.md block, and the Claude-specific
+// extras never leak back into AGENTS.md.
+func TestClaudeMdTemplate_SingleSourcesSharedContent(t *testing.T) {
+	tmpl := claudeMdTemplate()
+	if !strings.Contains(tmpl, strings.TrimSpace(agentsMdTemplate)) {
+		t.Error("CLAUDE.md template must embed the AGENTS.md template verbatim")
+	}
+	if !strings.Contains(tmpl, "### Expert Routing (ambient invocation)") {
+		t.Error("CLAUDE.md template missing Claude-specific expert routing section")
+	}
+	if !strings.Contains(tmpl, "Task tool") {
+		t.Error("CLAUDE.md extras should describe Task-tool expert routing")
+	}
+	if strings.Contains(agentsMdTemplate, "Expert Routing") || strings.Contains(agentsMdTemplate, "Task tool") {
+		t.Error("Claude-specific extras must not leak into the agent-neutral AGENTS.md template")
+	}
+}
+
 func TestEnsureClaudeMd_CreatesWhenMissing(t *testing.T) {
 	gitRoot := t.TempDir()
-	tmpl := writeTemplate(t, "## Revelara\ncontext here")
 
-	action, err := EnsureClaudeMd(gitRoot, tmpl, false)
+	action, err := EnsureClaudeMd(gitRoot, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,20 +54,22 @@ func TestEnsureClaudeMd_CreatesWhenMissing(t *testing.T) {
 	if !strings.Contains(content, claudeMdBlockStart) || !strings.Contains(content, claudeMdBlockEnd) {
 		t.Errorf("created CLAUDE.md missing managed block markers:\n%s", content)
 	}
-	if !strings.Contains(content, "context here") {
-		t.Errorf("created CLAUDE.md missing template content:\n%s", content)
+	if !strings.Contains(content, strings.TrimSpace(agentsMdTemplate)) {
+		t.Error("created CLAUDE.md missing shared AGENTS.md content")
+	}
+	if !strings.Contains(content, "### Expert Routing (ambient invocation)") {
+		t.Error("created CLAUDE.md missing Claude-specific extras")
 	}
 }
 
 func TestEnsureClaudeMd_AppendsToExistingWithoutBlock(t *testing.T) {
 	gitRoot := t.TempDir()
-	tmpl := writeTemplate(t, "## Revelara")
 	existing := "# My project\nuser content\n"
 	if err := os.WriteFile(filepath.Join(gitRoot, "CLAUDE.md"), []byte(existing), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	action, err := EnsureClaudeMd(gitRoot, tmpl, true)
+	action, err := EnsureClaudeMd(gitRoot, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,13 +87,12 @@ func TestEnsureClaudeMd_AppendsToExistingWithoutBlock(t *testing.T) {
 
 func TestEnsureClaudeMd_SkipsExistingWithoutBlockWhenNotYesAll(t *testing.T) {
 	gitRoot := t.TempDir()
-	tmpl := writeTemplate(t, "## Revelara")
 	existing := "# My project\n"
 	if err := os.WriteFile(filepath.Join(gitRoot, "CLAUDE.md"), []byte(existing), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	action, err := EnsureClaudeMd(gitRoot, tmpl, false)
+	action, err := EnsureClaudeMd(gitRoot, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,13 +106,12 @@ func TestEnsureClaudeMd_SkipsExistingWithoutBlockWhenNotYesAll(t *testing.T) {
 
 func TestEnsureClaudeMd_UpdatesExistingBlock(t *testing.T) {
 	gitRoot := t.TempDir()
-	tmpl := writeTemplate(t, "old content")
-	if _, err := EnsureClaudeMd(gitRoot, tmpl, false); err != nil {
+	stale := "# Mine\n" + claudeMdBlockStart + "\nstale block content\n" + claudeMdBlockEnd + "\n"
+	if err := os.WriteFile(filepath.Join(gitRoot, "CLAUDE.md"), []byte(stale), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	tmpl2 := writeTemplate(t, "new content")
-	action, err := EnsureClaudeMd(gitRoot, tmpl2, false)
+	action, err := EnsureClaudeMd(gitRoot, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,20 +119,25 @@ func TestEnsureClaudeMd_UpdatesExistingBlock(t *testing.T) {
 		t.Errorf("action = %q, want updated", action)
 	}
 	content := readClaudeMd(t, gitRoot)
-	if strings.Contains(content, "old content") || !strings.Contains(content, "new content") {
+	if strings.Contains(content, "stale block content") {
 		t.Errorf("update must replace block content:\n%s", content)
+	}
+	if !strings.HasPrefix(content, "# Mine\n") {
+		t.Errorf("update must preserve user content outside the block:\n%s", content)
+	}
+	if !strings.Contains(content, "### Expert Routing (ambient invocation)") {
+		t.Error("updated block missing current template content")
 	}
 }
 
 func TestEnsureClaudeMd_MigratesOldRelynceMarkers(t *testing.T) {
 	gitRoot := t.TempDir()
-	tmpl := writeTemplate(t, "new content")
 	legacy := "# Mine\n" + claudeMdBlockStartOld + "\nlegacy\n" + claudeMdBlockEndOld + "\n"
 	if err := os.WriteFile(filepath.Join(gitRoot, "CLAUDE.md"), []byte(legacy), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	action, err := EnsureClaudeMd(gitRoot, tmpl, false)
+	action, err := EnsureClaudeMd(gitRoot, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,20 +148,19 @@ func TestEnsureClaudeMd_MigratesOldRelynceMarkers(t *testing.T) {
 	if strings.Contains(content, claudeMdBlockStartOld) {
 		t.Errorf("old markers must be migrated:\n%s", content)
 	}
-	if !strings.Contains(content, "new content") || strings.Contains(content, "legacy") {
+	if strings.Contains(content, "legacy") {
 		t.Errorf("migrated block must carry new content:\n%s", content)
 	}
 }
 
 func TestEnsureClaudeMd_MalformedBlockErrors(t *testing.T) {
 	gitRoot := t.TempDir()
-	tmpl := writeTemplate(t, "content")
 	malformed := claudeMdBlockStart + "\nno end marker\n"
 	if err := os.WriteFile(filepath.Join(gitRoot, "CLAUDE.md"), []byte(malformed), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	action, err := EnsureClaudeMd(gitRoot, tmpl, true)
+	action, err := EnsureClaudeMd(gitRoot, true)
 	if err == nil {
 		t.Error("want error for start marker without end marker")
 	}

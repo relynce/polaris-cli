@@ -133,15 +133,14 @@ func InstallClaudePlugin(version string, tarballData []byte, opts InstallOptions
 
 	// Install CLAUDE.md managed block if we're in a git repo
 	// (AGENTS.md is handled centrally by InstallPluginWithOptions for all editors)
+	// po-pw4p6: the block is composed from the CLI's own templates; the
+	// tarball's CLAUDE.md is only shipped for older CLI versions.
 	if gitRoot := project.DetectGitRoot(); gitRoot != "" && !opts.SkipContextFiles {
-		claudeMdSrc := filepath.Join(pluginDir, "CLAUDE.md")
-		if _, err := os.Stat(claudeMdSrc); err == nil {
-			action, err := EnsureClaudeMd(gitRoot, claudeMdSrc, true)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: could not set up CLAUDE.md: %v\n", err)
-			} else if action != "skipped" {
-				fmt.Printf("✓ CLAUDE.md: %s\n", action)
-			}
+		action, err := EnsureClaudeMd(gitRoot, true)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: could not set up CLAUDE.md: %v\n", err)
+		} else if action != "skipped" {
+			fmt.Printf("✓ CLAUDE.md: %s\n", action)
 		}
 	}
 
