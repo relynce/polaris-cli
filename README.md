@@ -7,10 +7,12 @@ Connect your codebase to the [Revelara](https://dev.revelara.ai) reliability ris
 **Homebrew (macOS, recommended):**
 
 ```bash
-brew install revelara-ai/tap/rvl
+brew tap revelara-ai/tap
+brew trust revelara-ai/tap
+brew install --cask rvl
 ```
 
-Upgrade later with `brew upgrade rvl`. No Go toolchain required.
+Upgrade later with `brew upgrade --cask rvl`. No Go toolchain required.
 
 **From release binary (Linux/macOS/Windows):**
 
