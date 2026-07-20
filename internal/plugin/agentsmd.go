@@ -80,8 +80,14 @@ e.g. "scan this codebase for reliability risks".
 `
 
 // agentsMdManagedBlock returns the full managed block (markers included).
+// The body prefers the backend-served template from the installed plugin
+// content over the baked-in constant (see installedTemplate, po-pw4p6).
 func agentsMdManagedBlock() string {
-	return agentsMdBlockStart + "\n" + strings.TrimSpace(agentsMdTemplate) + "\n" + agentsMdBlockEnd + "\n"
+	body := agentsMdTemplate
+	if served := installedTemplate("AGENTS.md"); served != "" {
+		body = served
+	}
+	return agentsMdBlockStart + "\n" + strings.TrimSpace(body) + "\n" + agentsMdBlockEnd + "\n"
 }
 
 // AgentsMdState reports the state of AGENTS.md in gitRoot: missing, unmanaged
