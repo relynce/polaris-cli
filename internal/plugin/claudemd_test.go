@@ -9,8 +9,72 @@ import (
 
 // po-dhtnw: EnsureClaudeMd had no test coverage at all, which let init's
 // reporting bugs go unnoticed. These tests lock in the writer's contract.
-// po-pw4p6: the block is now composed from the shared agentsMdTemplate plus
-// Claude-specific extras, single-sourcing everything the two files share.
+// po-pw4p6: the block body is the backend-served template when plugin content
+// is installed, else a fallback composed from the shared agentsMdTemplate
+// plus Claude-specific extras.
+
+// TestMain points HOME at a temp dir so the writers never see the developer's
+// real installed plugin content (installedTemplate reads ~/.revelara).
+func TestMain(m *testing.M) {
+	tmp, err := os.MkdirTemp("", "rvl-test-home")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("HOME", tmp)
+	code := m.Run()
+	os.RemoveAll(tmp)
+	os.Exit(code)
+}
+
+// seedServedTemplate writes a template file into the fake installed plugin
+// content under the test HOME, and removes it when the test ends.
+func seedServedTemplate(t *testing.T, name, content string) {
+	t.Helper()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(home, ".revelara", "marketplace", "plugins", "revelara")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(path) })
+}
+
+// The served template is authoritative when plugin content is installed.
+func TestClaudeMdTemplate_PrefersServedTemplate(t *testing.T) {
+	seedServedTemplate(t, "CLAUDE.md", "## Revelara\nserved claude body\n")
+	if got := claudeMdTemplate(); got != "## Revelara\nserved claude body" {
+		t.Errorf("claudeMdTemplate() = %q, want served content", got)
+	}
+}
+
+func TestAgentsMdBlock_PrefersServedTemplate(t *testing.T) {
+	seedServedTemplate(t, "AGENTS.md", "## Revelara\nserved agents body\n")
+	block := agentsMdManagedBlock()
+	if !strings.Contains(block, "served agents body") {
+		t.Errorf("agentsMdManagedBlock() should use served template:\n%s", block)
+	}
+	if strings.Contains(block, "### Context Tools (rvl CLI)") {
+		t.Errorf("agentsMdManagedBlock() should not fall back when a served template exists:\n%s", block)
+	}
+}
+
+// An empty or missing served file must fall back to the baked-in templates,
+// never write an empty block.
+func TestTemplates_FallBackWhenServedMissingOrEmpty(t *testing.T) {
+	seedServedTemplate(t, "CLAUDE.md", "  \n")
+	if got := claudeMdTemplate(); !strings.Contains(got, "### Expert Routing (ambient invocation)") {
+		t.Error("claudeMdTemplate() must fall back to the composed template on an empty served file")
+	}
+	if block := agentsMdManagedBlock(); !strings.Contains(block, "### Context Tools (rvl CLI)") {
+		t.Error("agentsMdManagedBlock() must fall back to the baked-in template when no served file exists")
+	}
+}
 
 func readClaudeMd(t *testing.T, gitRoot string) string {
 	t.Helper()
