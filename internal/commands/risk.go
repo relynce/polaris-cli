@@ -47,15 +47,33 @@ type RiskDetail struct {
 	Risk
 	MappedControls []MappedControl `json:"mapped_controls,omitempty"`
 	Narrative      string          `json:"narrative,omitempty"`
-	// po-p3xur: capture spec-defined enrichments that aren't yet
-	// strongly typed in the CLI. `json.RawMessage` keeps them on the
-	// wire without forcing a struct rewrite, so `rvl risk show
-	// --format=json` outputs the full payload.
-	CorroboratingIncidents json.RawMessage `json:"corroborating_incidents,omitempty"`
-	ScoreBreakdown         json.RawMessage `json:"score_breakdown,omitempty"`
-	LatestDismissal        json.RawMessage `json:"latest_dismissal,omitempty"`
-	STPAProvenance         json.RawMessage `json:"stpa_provenance,omitempty"`
-	GeneratedMatcher       json.RawMessage `json:"generated_matcher,omitempty"`
+
+	// po-p3xur / risk-context-parity: typed parity fields for the full
+	// `rvl risk context` render. These are additive; `rvl risk show
+	// --format=json` still echoes the raw server body, so typing them here
+	// does not narrow the JSON output.
+	Likelihood             string               `json:"likelihood,omitempty"`
+	Impact                 string               `json:"impact,omitempty"`
+	Trend                  string               `json:"trend,omitempty"`
+	PlainSummary           string               `json:"plain_summary,omitempty"`
+	ReadOnly               bool                 `json:"read_only,omitempty"`
+	SourceIntelligenceTier string               `json:"source_intelligence_tier,omitempty"`
+	RiskClass              string               `json:"risk_class,omitempty"`
+	ResolutionReason       string               `json:"resolution_reason,omitempty"`
+	ConstraintType         string               `json:"constraint_type,omitempty"`
+	EvidenceStatus         string               `json:"evidence_status,omitempty"`
+	GraphMultiplier        float64              `json:"graph_multiplier,omitempty"`
+	CreatedAt              string               `json:"created_at,omitempty"`
+	UpdatedAt              string               `json:"updated_at,omitempty"`
+	LinkedIncidents        []string             `json:"linked_incidents,omitempty"`
+	RelatedFindings        []RelatedFindingItem `json:"related_findings,omitempty"`
+	Substantiation         json.RawMessage      `json:"substantiation,omitempty"`
+
+	CorroboratingIncidents []CorroboratingIncidentItem `json:"corroborating_incidents,omitempty"`
+	ScoreBreakdown         *ScoreBreakdown             `json:"score_breakdown,omitempty"`
+	LatestDismissal        *LatestDismissal            `json:"latest_dismissal,omitempty"`
+	STPAProvenance         *STPAProvenanceData         `json:"stpa_provenance,omitempty"`
+	GeneratedMatcher       *GeneratedMatcherRef        `json:"generated_matcher,omitempty"`
 }
 
 // MappedControl represents a control mapped to a risk
@@ -68,10 +86,10 @@ type MappedControl struct {
 	Objective   string `json:"objective,omitempty"`
 	// po-p3xur: keep evidence / weight / treatment fields the server
 	// includes in MappedControl so they round-trip through --format=json.
-	Weight                int             `json:"weight,omitempty"`
-	Treatment             string          `json:"treatment,omitempty"`
-	ExpectedEvidenceTypes []string        `json:"expected_evidence_types,omitempty"`
-	Evidence              json.RawMessage `json:"evidence,omitempty"`
+	Weight                int                  `json:"weight,omitempty"`
+	Treatment             string               `json:"treatment,omitempty"`
+	ExpectedEvidenceTypes []string             `json:"expected_evidence_types,omitempty"`
+	Evidence              []ControlEvidenceRef `json:"evidence,omitempty"`
 }
 
 // ListRisksResponse represents the response from listing risks.
@@ -108,8 +126,9 @@ type RiskContextResponse struct {
 	ServiceContext  *ServiceContextResp  `json:"service_context,omitempty"`
 	ScoreFactors    []ScoreFactorResp    `json:"score_factors,omitempty"`
 	ScoreFactorsOld []ScoreFactorResp    `json:"score_breakdown,omitempty"` // pre-po-foyko alias
-	ScoreAnalysis   json.RawMessage      `json:"score_analysis,omitempty"`
-	GraphMultiplier json.RawMessage      `json:"graph_multiplier,omitempty"`
+	ScoreAnalysis       json.RawMessage  `json:"score_analysis,omitempty"`
+	GraphMultiplier     json.RawMessage  `json:"graph_multiplier,omitempty"`
+	GroundingProvenance string           `json:"grounding_provenance,omitempty"`
 }
 
 // ControlContextItem represents a control with its context
