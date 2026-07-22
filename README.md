@@ -122,4 +122,4 @@ Exceptions: `rvl scan --local` uses its documented CI-gate codes (0 = no critica
 
 ## License
 
-[Business Source License 1.1](LICENSE) — see LICENSE for details.
+[Apache License 2.0](LICENSE) - see LICENSE and NOTICE for details.
