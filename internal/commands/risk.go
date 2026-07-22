@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/revelara-ai/rvl-cli/internal/api"
 	"github.com/revelara-ai/rvl-cli/internal/cliutil"
@@ -26,14 +26,14 @@ import (
 // --format=json` re-emits Raw so users get the full server payload
 // regardless of which fields are typed here today.
 type Risk struct {
-	ID           string   `json:"id"`
-	RiskCode     string   `json:"risk_code"`
-	Title        string   `json:"title"`
-	Category     string   `json:"category"`
-	Score        int      `json:"score"`
-	Status       string   `json:"status"`
-	Services     []string `json:"linked_services"`
-	ControlCodes []string `json:"control_codes,omitempty"`
+	ID            string   `json:"id"`
+	RiskCode      string   `json:"risk_code"`
+	Title         string   `json:"title"`
+	Category      string   `json:"category"`
+	Score         int      `json:"score"`
+	Status        string   `json:"status"`
+	Services      []string `json:"linked_services"`
+	ControlCodes  []string `json:"control_codes,omitempty"`
 	StaleSince    string   `json:"stale_since,omitempty"`
 	LastSeenAt    string   `json:"last_seen_at,omitempty"`
 	ResolvedAt    string   `json:"resolved_at,omitempty"`
@@ -463,11 +463,13 @@ func CmdRiskReady(args []string) {
 	for i := 0; i < len(args); i++ {
 		switch {
 		case args[i] == "--category" && i+1 < len(args):
-			categoryFilter = args[i+1]; i++
+			categoryFilter = args[i+1]
+			i++
 		case strings.HasPrefix(args[i], "--category="):
 			categoryFilter = strings.TrimPrefix(args[i], "--category=")
 		case args[i] == "--service" && i+1 < len(args):
-			serviceFilter = args[i+1]; i++
+			serviceFilter = args[i+1]
+			i++
 		case strings.HasPrefix(args[i], "--service="):
 			serviceFilter = strings.TrimPrefix(args[i], "--service=")
 		case args[i] == "--limit" && i+1 < len(args):
@@ -479,7 +481,8 @@ func CmdRiskReady(args []string) {
 				fmt.Fprintf(os.Stderr, "Error: --limit expects a positive integer, got %q\n", args[i+1])
 				os.Exit(cliutil.ExitUsage)
 			}
-			limit = n; i++
+			limit = n
+			i++
 		case strings.HasPrefix(args[i], "--limit="):
 			n, perr := strconv.Atoi(strings.TrimPrefix(args[i], "--limit="))
 			if perr != nil || n < 1 {
@@ -488,7 +491,8 @@ func CmdRiskReady(args []string) {
 			}
 			limit = n
 		case args[i] == "--format" && i+1 < len(args):
-			format = args[i+1]; i++
+			format = args[i+1]
+			i++
 		case strings.HasPrefix(args[i], "--format="):
 			format = strings.TrimPrefix(args[i], "--format=")
 		default:
@@ -867,242 +871,62 @@ func CmdRiskContext(args []string) {
 		return
 	}
 
-	// po-eedub: GET /api/v1/risks/{id}/context already accepted R-XXX
-	// codes; with po-bcs5c the show path matches, so we can pass the
-	// raw input through here and skip the limit=1000 FindRiskIDByCode
-	// round trip.
-	endpoint := cfg.APIURL + "/api/v1/risks/" + url.PathEscape(positional[0]) + "/context"
-	body, err := api.MakeAPIRequest(cfg, "GET", endpoint, nil)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error fetching risk context: %v\n", err)
+	// po-eedub/po-bcs5c: both the detail and context endpoints accept R-XXX
+	// codes directly, so no FindRiskIDByCode round trip is needed. Fetch the
+	// detail (primary), context (grounding / service / score-factors /
+	// knowledge), and stats (coverage) endpoints concurrently and compose
+	// the full view. The detail endpoint is the source of parity with the
+	// frontend Risk Detail page; context and stats are best-effort.
+	base := cfg.APIURL + "/api/v1/risks/" + url.PathEscape(positional[0])
+	var (
+		wg                             sync.WaitGroup
+		ctxBody, detailBody, statsBody []byte
+		ctxErr, detailErr, statsErr    error
+	)
+	wg.Add(3)
+	go func() { defer wg.Done(); ctxBody, ctxErr = api.MakeAPIRequest(cfg, "GET", base+"/context", nil) }()
+	go func() { defer wg.Done(); detailBody, detailErr = api.MakeAPIRequest(cfg, "GET", base, nil) }()
+	go func() {
+		defer wg.Done()
+		statsBody, statsErr = api.MakeAPIRequest(cfg, "GET", cfg.APIURL+"/api/v1/risks/stats", nil)
+	}()
+	wg.Wait()
+	_ = statsErr // coverage is optional; coverageFrom tolerates an empty body
+
+	if detailErr != nil && ctxErr != nil {
+		fmt.Fprintf(os.Stderr, "Error fetching risk context: %v\n", firstErr(detailErr, ctxErr))
 		os.Exit(1)
 	}
 
 	if format == "json" {
-		fmt.Println(string(body))
+		out, jerr := composeRiskContextJSON(ctxBody, detailBody, coverageFrom(statsBody))
+		if jerr != nil {
+			fmt.Println(string(ctxBody))
+			return
+		}
+		fmt.Println(string(out))
 		return
 	}
 
-	var ctx RiskContextResponse
-	if err := json.Unmarshal(body, &ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing response: %v\n", err)
+	view := RiskContextView{Coverage: coverageFrom(statsBody)}
+	if ctxErr == nil {
+		var c RiskContextResponse
+		if json.Unmarshal(ctxBody, &c) == nil {
+			view.Context = &c
+		}
+	}
+	if detailErr == nil {
+		var d RiskDetail
+		if json.Unmarshal(detailBody, &d) == nil {
+			view.Detail = &d
+		}
+	}
+	if view.Context == nil && view.Detail == nil {
+		fmt.Fprintln(os.Stderr, "Error parsing risk context response")
 		os.Exit(1)
 	}
 
-	printRiskContext(ctx)
-}
-
-func printRiskContext(ctx RiskContextResponse) {
-	fmt.Printf("\nRisk Context: %s\n", ctx.Risk.RiskCode)
-	fmt.Println(strings.Repeat("=", 80))
-	fmt.Printf("Title:    %s\n", ctx.Risk.Title)
-	fmt.Printf("Status:   %s\n", display.FormatStatus(ctx.Risk.Status))
-	fmt.Printf("Category: %s\n", ctx.Risk.Category)
-	fmt.Printf("Score:    %d\n", ctx.Risk.Score)
-
-	// Prefer structured STPA fields from API JSON; fall back to narrative parsing
-	hasStructuredSTPA := ctx.Risk.UCAType != "" || len(ctx.Risk.CausalFactors) > 0 || ctx.Risk.LossScenario != ""
-	if hasStructuredSTPA {
-		fmt.Println("\nSTPA Causal Analysis:")
-		fmt.Println(strings.Repeat("-", 80))
-		if ctx.Risk.UCAType != "" {
-			fmt.Printf("  Unsafe Control Action: %s", display.FormatUCAType(ctx.Risk.UCAType))
-			if cat := display.FormatUCACategory(ctx.Risk.UCAType); cat != "" {
-				fmt.Printf("  (%s)", cat)
-			}
-			fmt.Println()
-		}
-		if ctx.Risk.LossScenario != "" {
-			fmt.Printf("  Loss Scenario: %s\n", ctx.Risk.LossScenario)
-		}
-		if len(ctx.Risk.CausalFactors) > 0 {
-			fmt.Println("  Causal Factors:")
-			for _, f := range ctx.Risk.CausalFactors {
-				wrapped := display.WrapText(f, 74, "      ")
-				fmt.Printf("    > %s\n", wrapped)
-			}
-		}
-	} else if stpa := display.ParseSTPAContext(ctx.Risk.Narrative); stpa != nil {
-		fmt.Println("\nSTPA Causal Analysis:")
-		fmt.Println(strings.Repeat("-", 80))
-		if stpa.UCAType != "" {
-			fmt.Printf("  Unsafe Control Action: %s", display.FormatUCAType(stpa.UCAType))
-			if cat := display.FormatUCACategory(stpa.UCAType); cat != "" {
-				fmt.Printf("  (%s)", cat)
-			}
-			fmt.Println()
-		}
-		if stpa.LossScenario != "" {
-			fmt.Printf("  Loss Scenario: %s\n", stpa.LossScenario)
-		}
-		if len(stpa.CausalFactors) > 0 {
-			fmt.Println("  Causal Factors:")
-			for _, f := range stpa.CausalFactors {
-				wrapped := display.WrapText(f, 74, "      ")
-				fmt.Printf("    > %s\n", wrapped)
-			}
-		}
-	}
-
-	// po-foyko: prefer the new `score_factors` key but fall back to the
-	// pre-rename `score_breakdown` alias so older polaris versions still
-	// render the breakdown until they roll forward.
-	factors := ctx.ScoreFactors
-	if len(factors) == 0 {
-		factors = ctx.ScoreFactorsOld
-	}
-	if len(factors) > 0 {
-		fmt.Println("\nScore Factors:")
-		fmt.Println(strings.Repeat("-", 80))
-		for _, factor := range factors {
-			fmt.Printf("  [%+3d] %s (Source: %s)\n", factor.Points, factor.Description, factor.Source)
-		}
-	}
-
-	if ctx.ServiceContext != nil {
-		fmt.Println("\nService Context:")
-		fmt.Println(strings.Repeat("-", 80))
-		fmt.Printf("Service: %s", ctx.ServiceContext.ServiceName)
-		if ctx.ServiceContext.Tier != "" {
-			fmt.Printf(" (Tier: %s)", ctx.ServiceContext.Tier)
-		}
-		fmt.Println()
-
-		if ctx.ServiceContext.Incidents != nil {
-			inc := ctx.ServiceContext.Incidents
-			fmt.Printf("  Incidents: %d total (%d in last 30d, %d in last 90d)\n",
-				inc.TotalIncidents, inc.Last30Days, inc.Last90Days)
-			fmt.Printf("  Severity: %d critical, %d high\n", inc.CriticalCount, inc.HighCount)
-			if inc.AverageMTTR != nil {
-				fmt.Printf("  Average MTTR: %d minutes\n", *inc.AverageMTTR)
-			}
-			if inc.MostRecentTitle != "" {
-				fmt.Printf("  Most Recent: %s\n", inc.MostRecentTitle)
-			}
-		}
-	}
-
-	if len(ctx.Controls) > 0 {
-		fmt.Println("\nControl Coverage:")
-		fmt.Println(strings.Repeat("-", 80))
-		for _, ctrlCtx := range ctx.Controls {
-			ctrl := ctrlCtx.Control
-			fmt.Printf("\n[%s] %s\n", ctrl.ControlCode, ctrl.Name)
-			fmt.Printf("  Category: %s | Type: %s\n", ctrl.Category, display.FormatControlType(ctrl.Type))
-
-			if len(ctrlCtx.ExistingEvidence) > 0 {
-				fmt.Println("  Existing Evidence:")
-				for _, ev := range ctrlCtx.ExistingEvidence {
-					fmt.Printf("    - [%s] %s", ev.Type, ev.Name)
-					if ev.Status != "" {
-						fmt.Printf(" (Status: %s)", ev.Status)
-					}
-					fmt.Println()
-					if ev.Description != "" {
-						wrapped := display.WrapText(ev.Description, 76, "")
-						lines := strings.Split(wrapped, "\n")
-						for _, line := range lines {
-							fmt.Printf("      %s\n", line)
-						}
-					}
-				}
-			}
-
-			if len(ctrlCtx.EvidenceGaps) > 0 {
-				fmt.Println("  Evidence Gaps:")
-				for _, gap := range ctrlCtx.EvidenceGaps {
-					fmt.Printf("    - %s\n", gap)
-				}
-			}
-		}
-	}
-
-	if len(ctx.Knowledge.Patterns) > 0 {
-		fmt.Println("\nRelevant Incident Patterns:")
-		fmt.Println(strings.Repeat("-", 80))
-
-		patterns := ctx.Knowledge.Patterns
-		sort.Slice(patterns, func(i, j int) bool {
-			return patterns[i].Score > patterns[j].Score
-		})
-
-		for _, pat := range patterns {
-			fmt.Printf("\n%s (Type: %s)\n", pat.Title, pat.PatternType)
-			fmt.Printf("  Occurrences: %d | Relevance: %.2f\n", pat.OccurrenceCount, pat.Score)
-			if pat.TypicalMTTR != "" {
-				fmt.Printf("  Typical MTTR: %s\n", pat.TypicalMTTR)
-			}
-			if pat.TypicalBlastRadius != "" {
-				fmt.Printf("  Typical Blast Radius: %s\n", pat.TypicalBlastRadius)
-			}
-
-			if len(pat.CausalChain) > 0 {
-				fmt.Println("  Causal Chain:")
-				sort.Slice(pat.CausalChain, func(i, j int) bool {
-					return pat.CausalChain[i].Order < pat.CausalChain[j].Order
-				})
-				for _, link := range pat.CausalChain {
-					fmt.Printf("    %d. %s", link.Order, link.Event)
-					if link.TypicalDelay != "" {
-						fmt.Printf(" (delay: %s)", link.TypicalDelay)
-					}
-					fmt.Println()
-				}
-			}
-
-			if pat.TriggerEvent != "" {
-				fmt.Printf("  Trigger: %s\n", pat.TriggerEvent)
-			}
-
-			if len(pat.PreventionStrategies) > 0 {
-				fmt.Println("  Prevention Strategies:")
-				for _, strat := range pat.PreventionStrategies {
-					wrapped := display.WrapText(strat, 76, "")
-					lines := strings.Split(wrapped, "\n")
-					for _, line := range lines {
-						fmt.Printf("    - %s\n", line)
-					}
-				}
-			}
-		}
-	}
-
-	if len(ctx.Knowledge.Procedures) > 0 {
-		fmt.Println("\nRelevant Procedures:")
-		fmt.Println(strings.Repeat("-", 80))
-
-		procedures := ctx.Knowledge.Procedures
-		sort.Slice(procedures, func(i, j int) bool {
-			return procedures[i].Score > procedures[j].Score
-		})
-
-		for _, proc := range procedures {
-			fmt.Printf("\n%s\n", proc.Title)
-			fmt.Printf("  Effectiveness: %.2f | Applied: %d times (%d successful)\n",
-				proc.EffectivenessScore, proc.AppliedCount, proc.SuccessCount)
-			fmt.Printf("  Relevance: %.2f\n", proc.Score)
-			if len(proc.RelatedControls) > 0 {
-				fmt.Printf("  Related Controls: %s\n", strings.Join(proc.RelatedControls, ", "))
-			}
-		}
-	}
-
-	if len(ctx.Knowledge.Facts) > 0 {
-		fmt.Println("\nRelevant Facts:")
-		fmt.Println(strings.Repeat("-", 80))
-
-		facts := ctx.Knowledge.Facts
-		sort.Slice(facts, func(i, j int) bool {
-			return facts[i].Score > facts[j].Score
-		})
-
-		for _, fact := range facts {
-			wrapped := display.WrapText(fact.Content, 76, "")
-			fmt.Printf("\n- %s\n", wrapped)
-			fmt.Printf("  Confidence: %.2f | Validation: %s | Relevance: %.2f\n",
-				fact.Confidence, fact.ValidationStatus, fact.Score)
-		}
-	}
+	fmt.Print(renderRiskContext(view))
 }
 
 func printCompoundRiskShow(d *CompoundRiskDetailResponse) {
