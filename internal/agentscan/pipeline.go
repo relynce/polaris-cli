@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // This file is the pipeline orchestrator for `rvl scan --agent`
@@ -61,6 +62,10 @@ type PipelineConfig struct {
 	ExtraGeneratedGlobs []string
 	BudgetWarnUSD       float64 // warn when total cost exceeds this (0 = no warning)
 	MaxInvocations      int     // chunk x lens cap (0 = DefaultMaxInvocations)
+	// Waivers suppress matching findings before the gate (po-66evv.7).
+	// Keyed on rule slug + file glob; a waived finding is reported but
+	// never gates. Populated by the CLI from .revelara.yaml waivers.
+	Waivers []Waiver
 }
 
 // PipelineResult is everything one scan produced. Notices MUST be
@@ -88,6 +93,9 @@ type PipelineResult struct {
 	// setup failure, or LensResult.Err). All lens errors are infra class
 	// for v1 gating; the CLI report distinguishes their flavors.
 	InfraErrors []error
+	// Waived lists findings a waiver suppressed (po-66evv.7). They are
+	// reported but excluded from Findings and never gate.
+	Waived []WaivedFinding
 	// Gate decision (ComputeGate output, copied here for the caller).
 	Blocked    bool
 	BlockedOn  []Finding
@@ -334,9 +342,17 @@ func RunPipeline(ctx context.Context, cfg PipelineConfig, cs ChangeSet) (Pipelin
 	}
 	res.Findings = dedupeFindings(all)
 
-	// TODO(po-66evv.7): waiver filtering. Apply (rule, file-glob)
-	// waivers from .revelara.yaml to res.Findings HERE, before
-	// ComputeGate, so waived findings are reported but never gate.
+	// po-66evv.7: apply (rule, file-glob) waivers before the gate so
+	// waived findings are reported but never gate. Expired waivers are
+	// inert (waiverActive). ComputeGate then sees only kept findings.
+	if len(cfg.Waivers) > 0 {
+		kept, waived := ApplyWaivers(res.Findings, cfg.Waivers, time.Now())
+		res.Findings = kept
+		res.Waived = waived
+		if len(waived) > 0 {
+			res.Notices = append(res.Notices, fmt.Sprintf("%d finding(s) waived by .revelara.yaml waivers", len(waived)))
+		}
+	}
 
 	return applyGate(cfg, res), nil
 }

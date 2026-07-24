@@ -204,9 +204,11 @@ func runAgentScan(a agentScanArgs) {
 	projectCfg := project.LoadProjectConfigFrom(absTarget)
 	var agentCfg *project.AgentScanConfig
 	var yamlBaseRef string
+	var waivers []agentscan.Waiver
 	if projectCfg != nil && projectCfg.Scanner != nil {
 		agentCfg = projectCfg.Scanner.Agent
 		yamlBaseRef = projectCfg.Scanner.BaseRef
+		waivers = mapWaivers(projectCfg.Scanner.Waivers)
 	}
 	settings, err := resolveAgentScanSettings(a, agentCfg)
 	if err != nil {
@@ -257,6 +259,7 @@ func runAgentScan(a agentScanArgs) {
 		ExtraGeneratedGlobs: settings.GeneratedGlobs,
 		BudgetWarnUSD:       settings.BudgetWarnUSD,
 		MaxInvocations:      settings.MaxInvocations,
+		Waivers:             waivers,
 	}, cs)
 	if err != nil {
 		switch {
@@ -299,6 +302,43 @@ func runAgentScan(a agentScanArgs) {
 		os.Exit(cliutil.ExitError)
 	}
 	os.Exit(cliutil.ExitOK)
+}
+
+// mapWaivers converts .revelara.yaml WaiverEntry values into agentscan
+// waivers (po-66evv.7). The matcher slug becomes the rule key; one
+// waivers list serves both the local scanner and the agent scan (their
+// slug namespaces are disjoint, so entries only match their own scanner).
+func mapWaivers(entries []project.WaiverEntry) []agentscan.Waiver {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]agentscan.Waiver, 0, len(entries))
+	for _, w := range entries {
+		out = append(out, agentscan.Waiver{
+			Rule:    w.Matcher,
+			Paths:   append([]string(nil), w.Paths...),
+			Expires: w.Expires,
+			Reason:  w.Reason,
+		})
+	}
+	return out
+}
+
+// mapWaivedReport flattens waived findings for the JSON report.
+func mapWaivedReport(waived []agentscan.WaivedFinding) []agentWaivedFinding {
+	if len(waived) == 0 {
+		return nil
+	}
+	out := make([]agentWaivedFinding, 0, len(waived))
+	for _, w := range waived {
+		out = append(out, agentWaivedFinding{
+			Finding: w.Finding,
+			Rule:    w.Waiver.Rule,
+			Reason:  w.Waiver.Reason,
+			Expires: w.Waiver.Expires,
+		})
+	}
+	return out
 }
 
 // gitToplevel resolves the repository root for dir; the change set,
@@ -402,6 +442,21 @@ func printAgentScanHuman(res agentscan.PipelineResult, s agentScanSettings) {
 				strings.ToUpper(f.Severity), f.Rule, f.File, f.Line, f.Title)
 		}
 	}
+	if len(res.Waived) > 0 {
+		fmt.Printf("\nWaived (%d):\n", len(res.Waived))
+		for _, w := range res.Waived {
+			reason := w.Waiver.Reason
+			if reason == "" {
+				reason = "(no reason given)"
+			}
+			exp := ""
+			if w.Waiver.Expires != "" {
+				exp = fmt.Sprintf(" [expires %s]", w.Waiver.Expires)
+			}
+			fmt.Printf("  %-28s %s:%d  %s%s\n",
+				w.Finding.Rule, w.Finding.File, w.Finding.Line, reason, exp)
+		}
+	}
 	if len(res.Notices) > 0 {
 		fmt.Println("\nNotices:")
 		for _, n := range res.Notices {
@@ -440,23 +495,31 @@ type agentDroppedFinding struct {
 	Reason  string            `json:"reason"`
 }
 
+type agentWaivedFinding struct {
+	Finding agentscan.Finding `json:"finding"`
+	Rule    string            `json:"rule"`
+	Reason  string            `json:"reason,omitempty"`
+	Expires string            `json:"expires,omitempty"`
+}
+
 type agentScanReport struct {
-	Mode         string              `json:"mode"`
-	FailOn       string              `json:"fail_on"`
-	StrictErrors bool                `json:"strict_errors"`
-	Skipped      bool                `json:"skipped"`
-	SkipNotice   string              `json:"skip_notice,omitempty"`
-	Lenses       []agentLensReport   `json:"lenses"`
-	Findings     []agentscan.Finding `json:"findings"`
-	Notices      []string            `json:"notices,omitempty"`
-	TotalCostUSD float64             `json:"total_cost_usd"`
-	Degraded     bool                `json:"degraded"`
-	FileListMode bool                `json:"file_list_mode"`
-	InfraErrors  []string            `json:"infra_errors,omitempty"`
-	Blocked      bool                `json:"blocked"`
-	BlockedOn    []agentscan.Finding `json:"blocked_on,omitempty"`
-	GateReason   string              `json:"gate_reason,omitempty"`
-	Banner       string              `json:"banner,omitempty"`
+	Mode         string               `json:"mode"`
+	FailOn       string               `json:"fail_on"`
+	StrictErrors bool                 `json:"strict_errors"`
+	Skipped      bool                 `json:"skipped"`
+	SkipNotice   string               `json:"skip_notice,omitempty"`
+	Lenses       []agentLensReport    `json:"lenses"`
+	Findings     []agentscan.Finding  `json:"findings"`
+	Waived       []agentWaivedFinding `json:"waived,omitempty"`
+	Notices      []string             `json:"notices,omitempty"`
+	TotalCostUSD float64              `json:"total_cost_usd"`
+	Degraded     bool                 `json:"degraded"`
+	FileListMode bool                 `json:"file_list_mode"`
+	InfraErrors  []string             `json:"infra_errors,omitempty"`
+	Blocked      bool                 `json:"blocked"`
+	BlockedOn    []agentscan.Finding  `json:"blocked_on,omitempty"`
+	GateReason   string               `json:"gate_reason,omitempty"`
+	Banner       string               `json:"banner,omitempty"`
 }
 
 // printAgentScanJSON emits the machine-readable report on stdout. The
@@ -474,6 +537,7 @@ func printAgentScanJSON(res agentscan.PipelineResult, s agentScanSettings) {
 		Notices:      res.Notices,
 		TotalCostUSD: res.TotalCostUSD,
 		Degraded:     res.Degraded,
+		Waived:       mapWaivedReport(res.Waived),
 		FileListMode: res.FileListMode,
 		Blocked:      res.Blocked,
 		BlockedOn:    res.BlockedOn,

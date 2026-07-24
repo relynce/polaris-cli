@@ -224,6 +224,52 @@ func TestRunPipelineHappyPathAggregation(t *testing.T) {
 	}
 }
 
+// TestRunPipelineWaiverUnblocks proves po-66evv.7: a waiver for the
+// blocking rule turns a BLOCKED gate into a PASS while still reporting
+// the finding under Waived.
+func TestRunPipelineWaiverUnblocks(t *testing.T) {
+	dir := initStagedRepo(t, map[string]string{"a.go": "package p\n"})
+	perLens := []Finding{
+		{Rule: "missing-timeout", Severity: "high", File: "a.go", Line: 10, Title: "go finding", Description: "d"},
+		{Rule: "missing-audit-signal", Severity: "medium", File: "a.go", Line: 12, Title: "obs finding", Description: "d"},
+		{Rule: "migration-safety", Severity: "low", File: "a.go", Line: 14, Title: "general finding", Description: "d"},
+	}
+	stub := &fakeAdapter{fn: func(string) (InvokeResult, error) {
+		return InvokeResult{Raw: payloadJSON(t, perLens, "ok"), CostUSD: 0.5}, nil
+	}}
+	cfg := PipelineConfig{
+		Root:    dir,
+		Adapter: stub,
+		Waivers: []Waiver{{Rule: "missing-timeout", Paths: []string{"**/*.go"}, Reason: "tracked in PO-123"}},
+	}
+	res, err := RunPipeline(context.Background(), cfg, stagedCS(t, dir))
+	if err != nil {
+		t.Fatalf("RunPipeline: %v", err)
+	}
+	if res.Blocked {
+		t.Errorf("gate must PASS once the only high finding is waived: %s", res.GateReason)
+	}
+	if len(res.Waived) != 1 || res.Waived[0].Finding.Rule != "missing-timeout" {
+		t.Fatalf("expected the missing-timeout finding waived, got %+v", res.Waived)
+	}
+	// The waived finding must not appear in the gating set.
+	for _, f := range res.Findings {
+		if f.Rule == "missing-timeout" {
+			t.Errorf("waived finding must be excluded from Findings")
+		}
+	}
+	// A waiver notice must be present so a waived scan never reads clean.
+	found := false
+	for _, n := range res.Notices {
+		if strings.Contains(n, "waived") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a waiver notice, notices=%v", res.Notices)
+	}
+}
+
 func TestRunPipelineRangeMode(t *testing.T) {
 	dir := initRangeRepo(t)
 	stub := &fakeAdapter{fn: func(string) (InvokeResult, error) {
