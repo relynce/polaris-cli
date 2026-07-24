@@ -46,6 +46,7 @@ type agentScanArgs struct {
 	failOn         string
 	model          string
 	agentBinary    string
+	agentPreset    string // po-66evv.10: adapter preset (claude|custom)
 	timeoutSeconds string
 	format         string
 	submit         bool   // po-66evv.11: opt-in POST to the risks scan endpoint
@@ -59,6 +60,7 @@ type agentScanSettings struct {
 	Mode           string
 	FailOn         string
 	StrictErrors   bool
+	Preset         string // adapter preset name (repo config may set this: a name, not code)
 	Model          string
 	Binary         string // flag-only; never read from repo config (po-66evv.10)
 	Timeout        time.Duration
@@ -148,6 +150,12 @@ func resolveAgentScanSettings(a agentScanArgs, cfg *project.AgentScanConfig) (ag
 			}
 			s.MaxInvocations = cfg.MaxInvocations
 		}
+		// Preset is a built-in adapter NAME, safe to accept from repo
+		// config (po-66evv.10). A custom command string is not a repo
+		// field; it comes only from RVL_AGENT_CMD.
+		if cfg.Preset != "" {
+			s.Preset = cfg.Preset
+		}
 	}
 	if a.mode != "" {
 		mode := strings.ToLower(strings.TrimSpace(a.mode))
@@ -168,6 +176,9 @@ func resolveAgentScanSettings(a agentScanArgs, cfg *project.AgentScanConfig) (ag
 	}
 	if a.agentBinary != "" {
 		s.Binary = a.agentBinary
+	}
+	if a.agentPreset != "" {
+		s.Preset = a.agentPreset
 	}
 	if a.timeoutSeconds != "" {
 		n, err := strconv.Atoi(a.timeoutSeconds)
@@ -240,12 +251,25 @@ func runAgentScan(a agentScanArgs) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Adapter selection with the trust boundary (po-66evv.10): the preset
+	// name may come from repo config, but a custom command comes ONLY
+	// from RVL_AGENT_CMD (a user-level source), never repo config.
+	adapter, err := agentscan.SelectAdapter(agentscan.AdapterChoice{
+		Preset:         settings.Preset,
+		Config:         agentscan.AdapterConfig{Model: settings.Model, Timeout: settings.Timeout, Binary: settings.Binary},
+		TrustedCommand: parseAgentCmdEnv(os.Getenv("RVL_AGENT_CMD")),
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(cliutil.ExitUsage)
+	}
+
 	// Shared pipeline config; the change set and snapshot treeish are set
 	// per run (one run for staged/changed-only, one per pushed ref for
 	// pre-push).
 	baseCfg := agentscan.PipelineConfig{
 		Root:                root,
-		Adapter:             agentscan.NewClaudeAdapter(agentscan.AdapterConfig{Model: settings.Model, Timeout: settings.Timeout, Binary: settings.Binary}),
+		Adapter:             adapter,
 		FailOn:              settings.FailOn,
 		Mode:                settings.Mode,
 		StrictErrors:        settings.StrictErrors,
@@ -475,6 +499,19 @@ func runForceNext(args []string) {
 	fmt.Printf("Force-through armed: %s\n", path)
 	fmt.Println("The NEXT `rvl scan --agent` run in this repo will SKIP the gate and record an audit event.")
 	fmt.Println("Remove the marker to cancel: rm " + path)
+}
+
+// parseAgentCmdEnv splits the RVL_AGENT_CMD user-level command template
+// into argv. It is whitespace-split (no shell quoting) - documented as a
+// v1 limitation. Empty input yields nil so SelectAdapter treats "no
+// trusted command" as the claude default. This is the ONLY source of a
+// custom command; repo config can never supply one (po-66evv.10).
+func parseAgentCmdEnv(v string) []string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil
+	}
+	return strings.Fields(v)
 }
 
 // mapWaivers converts .revelara.yaml WaiverEntry values into agentscan

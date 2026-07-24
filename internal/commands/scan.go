@@ -362,6 +362,7 @@ func CmdScan(args []string, version string) {
 	var failOnFlag string
 	var modelFlag string
 	var agentBinaryFlag string
+	var agentPresetFlag string
 	var timeoutSecondsFlag string
 
 	for i := 0; i < len(args); i++ {
@@ -440,6 +441,13 @@ func CmdScan(args []string, version string) {
 			}
 			i++
 			agentBinaryFlag = args[i]
+		case "--agent-preset":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --agent-preset requires a value (claude|custom)")
+				os.Exit(cliutil.ExitUsage)
+			}
+			i++
+			agentPresetFlag = args[i]
 		case "--timeout-seconds":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --timeout-seconds requires a value")
@@ -569,6 +577,7 @@ func CmdScan(args []string, version string) {
 			failOn:         failOnFlag,
 			model:          modelFlag,
 			agentBinary:    agentBinaryFlag,
+			agentPreset:    agentPresetFlag,
 			timeoutSeconds: timeoutSecondsFlag,
 			format:         format,
 			submit:         submit,
@@ -577,8 +586,8 @@ func CmdScan(args []string, version string) {
 		})
 		return
 	}
-	if stagedFlag || prePushFlag || failOnFlag != "" || modelFlag != "" || agentBinaryFlag != "" || timeoutSecondsFlag != "" {
-		fmt.Fprintln(os.Stderr, "Error: --staged, --pre-push, --fail-on, --model, --agent-binary, and --timeout-seconds require --agent")
+	if stagedFlag || prePushFlag || failOnFlag != "" || modelFlag != "" || agentBinaryFlag != "" || agentPresetFlag != "" || timeoutSecondsFlag != "" {
+		fmt.Fprintln(os.Stderr, "Error: --staged, --pre-push, --fail-on, --model, --agent-binary, --agent-preset, and --timeout-seconds require --agent")
 		os.Exit(cliutil.ExitUsage)
 	}
 

@@ -96,6 +96,11 @@ type ScannerConfig struct {
 //	    generated_globs: ["gen/**"]  # extra generated-content globs
 //	    max_invocations: 12    # chunk x lens fan-out cap
 type AgentScanConfig struct {
+	// Preset names a built-in adapter (claude, custom). A NAME is safe
+	// to accept from repo config: it selects built-in code, it cannot
+	// introduce code. A custom COMMAND string is never a repo field
+	// (po-66evv.10 trust boundary); it comes from RVL_AGENT_CMD only.
+	Preset         string   `yaml:"preset,omitempty"`
 	FailOn         string   `yaml:"fail_on,omitempty"`
 	Mode           string   `yaml:"mode,omitempty"`
 	StrictErrors   bool     `yaml:"strict_errors,omitempty"`
