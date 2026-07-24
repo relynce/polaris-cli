@@ -10,6 +10,7 @@ import (
 
 	"github.com/revelara-ai/rvl-cli/internal/agentscan"
 	"github.com/revelara-ai/rvl-cli/internal/config"
+	"github.com/revelara-ai/rvl-cli/internal/scanner"
 )
 
 func TestMapAgentFindings(t *testing.T) {
@@ -39,11 +40,19 @@ func TestMapAgentFindings(t *testing.T) {
 	if got["slug"] != "missing-timeout" {
 		t.Errorf("slug = %v, want missing-timeout", got["slug"])
 	}
+	// po-fc2qs: severity maps to BOTH axes; the server's Path 5 scorer
+	// reads likelihood, so it must be set (high severity -> high/high).
+	if got["likelihood"] != "high" {
+		t.Errorf("likelihood = %v, want high (Path 5 scores off likelihood)", got["likelihood"])
+	}
 	if got["impact"] != "high" {
 		t.Errorf("impact = %v, want high", got["impact"])
 	}
-	if got["confidence"] != "agent" {
-		t.Errorf("confidence = %v, want agent", got["confidence"])
+	// Confidence must be EMPTY (omitempty -> absent), never the literal
+	// "agent" which hits the 0.85 default modulator; empty lets the server
+	// fall through to confidence = likelihood.
+	if _, present := got["confidence"]; present {
+		t.Errorf("confidence must be omitted (empty), got %v", got["confidence"])
 	}
 	if got["category"] != "go" {
 		t.Errorf("category = %v, want the lens id go", got["category"])
@@ -129,8 +138,32 @@ func TestSubmitScanServerErrorReturnsErr(t *testing.T) {
 // TestSubmitAgentScanGuards proves the guard paths never touch the
 // network or exit: empty service and empty findings just warn/return.
 func TestSubmitAgentScanGuards(t *testing.T) {
-	// Empty service: returns without calling api config / network.
-	submitAgentScan(agentscan.PipelineResult{Findings: []agentscan.Finding{{Rule: "r"}}}, "", "enforce", "")
-	// No findings: returns.
-	submitAgentScan(agentscan.PipelineResult{}, "svc", "enforce", "")
+	// Empty service (no flag, temp dir has no .revelara.yaml): returns
+	// without calling api config / network.
+	dir := t.TempDir()
+	submitAgentScan(agentscan.PipelineResult{Findings: []agentscan.Finding{{Rule: "r"}}}, "", dir, "enforce", "")
+	// No findings: returns even with a service.
+	submitAgentScan(agentscan.PipelineResult{}, "svc", dir, "enforce", "")
+}
+
+// TestMapAgentFindingsSeverityAxes locks the severity->axes mapping that
+// makes Path 5 score the lens severity (po-fc2qs).
+func TestMapAgentFindingsSeverityAxes(t *testing.T) {
+	cases := []struct{ sev, wantLikelihood, wantImpact string }{
+		{"critical", "high", "critical"},
+		{"high", "high", "high"},
+		{"medium", "medium", "medium"},
+		{"low", "low", "low"},
+		{"", "medium", "medium"}, // unknown -> medium/medium
+	}
+	for _, c := range cases {
+		out := mapAgentFindings([]agentscan.Finding{{Rule: "r", Severity: c.sev, File: "a.go", Lens: "go"}})
+		sf := out[0].(scanner.ScanFinding)
+		if sf.Likelihood != c.wantLikelihood || sf.Impact != c.wantImpact {
+			t.Errorf("severity %q -> (%s,%s), want (%s,%s)", c.sev, sf.Likelihood, sf.Impact, c.wantLikelihood, c.wantImpact)
+		}
+		if sf.Confidence != "" {
+			t.Errorf("severity %q: confidence must be empty, got %q", c.sev, sf.Confidence)
+		}
+	}
 }

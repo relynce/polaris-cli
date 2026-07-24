@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/revelara-ai/rvl-cli/internal/agentscan"
 	"github.com/revelara-ai/rvl-cli/internal/api"
@@ -28,19 +29,29 @@ import (
 // ScanFinding shape (scanner.ScanFinding, which carries the JSON tags
 // the endpoint expects), returned as []interface{} for ScanRequest.
 //
-// Mapping decisions:
-//   - Slug        <- Rule   (the stable lens rule slug; waiver/scoring key)
-//   - Impact      <- Severity
-//   - Confidence  = "agent" (distinguishes agent findings from matcher
-//     findings, which carry a matcher confidence)
-//   - Category    <- Lens   (the emitting lens id; the closest analog to
-//     the local scanner's matcher category)
-//   - Evidence    = one code evidence entry {path, line, title}
-//   - Narrative   <- Description, with the recommendation appended
-//   - Status      = "new"   (agent findings are change-scoped by
-//     construction, so every one is a new-in-this-change finding)
-//   - CorroboratedByAgents = [Lens]
-//   - Provenance.SourcePatternIDs = ["agent-scan/<lens>"]
+// SCORING CONSISTENCY (po-fc2qs): the server's Path 5 scorer reads the
+// finding's LIKELIHOOD (risk_service.go:2367 feeds Severity: likelihood),
+// not impact. It also treats a non-empty Confidence literally. The prior
+// mapping set Impact<-severity, left Likelihood empty (defaulting to
+// Medium), and set Confidence="agent" (hitting the 0.85 default
+// modulator) - so every finding collapsed to score 42 regardless of the
+// lens severity. This mirrors the matcher path instead:
+//   - Likelihood + Impact <- severity via the SAME mapping matchers use
+//     (scanner.likelihoodAndImpactForSeverity: critical->(high,critical),
+//     high->(high,high), medium->(medium,medium), low->(low,low)), so the
+//     lens severity actually drives the score.
+//   - Confidence left EMPTY: risk_service.go:2344-2354 then falls through
+//     to confidence = likelihood, the documented AI-agent path. Never the
+//     literal "agent".
+//   - Slug <- Rule (stable lens slug; scoring/waiver key)
+//   - Category <- Lens; one code Evidence entry; Narrative <- Description
+//     (+ recommendation); Status "new"; CorroboratedByAgents = [Lens];
+//     Provenance.SourcePatternIDs = ["agent-scan/<lens>"].
+//
+// Provenance grounding (IncidentFrequency / TypicalBlastRadius /
+// TypicalMTTR) is intentionally NOT populated here yet: without it both
+// axes take the severity-fallback branch, which is exactly how an
+// ungrounded matcher finding scores - consistent, if not yet enriched.
 func mapAgentFindings(findings []agentscan.Finding) []interface{} {
 	out := make([]interface{}, 0, len(findings))
 	for _, f := range findings {
@@ -48,12 +59,13 @@ func mapAgentFindings(findings []agentscan.Finding) []interface{} {
 		if f.Recommendation != "" {
 			narrative = f.Description + "\n\nRecommendation: " + f.Recommendation
 		}
+		likelihood, impact := likelihoodImpactForSeverity(f.Severity)
 		sf := scanner.ScanFinding{
 			Title:      f.Title,
 			Category:   f.Lens,
-			Impact:     f.Severity,
+			Likelihood: likelihood,
+			Impact:     impact,
 			Slug:       f.Rule,
-			Confidence: "agent",
 			Narrative:  narrative,
 			Status:     scanner.StatusNew,
 			Evidence: []scanner.ScanEvidence{{
@@ -72,21 +84,36 @@ func mapAgentFindings(findings []agentscan.Finding) []interface{} {
 	return out
 }
 
-// resolveSubmitService resolves the service name for submission from the
-// --service flag or the target's .revelara.yaml project. Returns "" when
-// none is available (the caller warns and skips submit).
-func resolveSubmitService(flagService, target string) string {
-	service := flagService
-	projectCfg := project.LoadProjectConfigFrom(target)
-	if projectCfg != nil && projectCfg.Project != "" {
-		service = projectCfg.Project
+// likelihoodImpactForSeverity mirrors the matcher path's severity->axes
+// mapping (rvl-cli internal/scanner/convert.go:206-218), kept local
+// because that function is unexported. Consistency with the matcher
+// mapping is the point: agent and matcher findings must seed Path 5 the
+// same way.
+func likelihoodImpactForSeverity(severity string) (string, string) {
+	switch strings.ToLower(severity) {
+	case "critical":
+		return "high", "critical"
+	case "high":
+		return "high", "high"
+	case "medium":
+		return "medium", "medium"
+	case "low":
+		return "low", "low"
 	}
-	return service
+	return "medium", "medium"
 }
 
 // submitAgentScan POSTs the aggregated findings to the risks scan
 // endpoint. It never affects the gate: all failures warn and return.
-func submitAgentScan(res agentscan.PipelineResult, service, mode, timeoutFlag string) {
+// The service and business criticality both come from the target's
+// .revelara.yaml (business criticality feeds the Path 5 multiplier the
+// same way the local scan supplies it, scan.go:748-749).
+func submitAgentScan(res agentscan.PipelineResult, flagService, absTarget, mode, timeoutFlag string) {
+	projectCfg := project.LoadProjectConfigFrom(absTarget)
+	service := flagService
+	if projectCfg != nil && projectCfg.Project != "" {
+		service = projectCfg.Project
+	}
 	if service == "" {
 		fmt.Fprintln(os.Stderr, "warning: --submit skipped: no service (pass --service or add project to .revelara.yaml)")
 		return
@@ -106,6 +133,14 @@ func submitAgentScan(res agentscan.PipelineResult, service, mode, timeoutFlag st
 			SkillName:    "rvl-agent-scan",
 			SkillVersion: scannerVersion,
 		},
+	}
+	// po-fc2qs: business criticality is the only .revelara.yaml input to
+	// the Path 5 business multiplier; without it agent findings always
+	// score at criticality 0 (x1.0). Mirror the local scan (scan.go:748).
+	if projectCfg != nil {
+		if crit := projectCfg.CriticalityScore(); crit > 0 {
+			scanReq.BusinessCriticality = &crit
+		}
 	}
 	resp, err := submitScan(apiCfg, &scanReq, resolveScanTimeout(timeoutFlag))
 	if err != nil {

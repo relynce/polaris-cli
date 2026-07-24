@@ -340,7 +340,7 @@ func runOnePipeline(ctx context.Context, cfg agentscan.PipelineConfig, cs agents
 	// gate decision and never changes the exit code; a submission failure
 	// is a warning.
 	if a.submit && !result.Skipped {
-		submitAgentScan(result, resolveSubmitService(a.service, absTarget), settings.Mode, a.timeout)
+		submitAgentScan(result, a.service, absTarget, settings.Mode, a.timeout)
 	}
 
 	if strings.EqualFold(a.format, "json") {
