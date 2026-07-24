@@ -86,9 +86,22 @@ type Finding struct {
 	Lens           string `json:"lens,omitempty"` // stamped by the orchestrator
 }
 
+// DroppedFinding is a finding rejected by ValidateFindings (rule not
+// in the lens vocabulary, bad severity, or file outside the change
+// set) together with the reason, kept for the scan report. Drops are
+// not errors: the lens ran, its non-conforming output just does not
+// gate.
+type DroppedFinding struct {
+	Finding Finding
+	Reason  string
+}
+
 // LensResult is one lens invocation's outcome. Err is set when the
 // agent process failed or its output could not be parsed; the gate
 // policy decides whether that fails open or closed (spec: Gate policy).
+// Dropped (added with the adapter stage, po-66evv.4) holds findings
+// rejected by validation; Findings holds only conforming, lens-stamped
+// findings.
 type LensResult struct {
 	Lens     Lens
 	Findings []Finding
@@ -96,4 +109,5 @@ type LensResult struct {
 	CostUSD  float64
 	Wall     time.Duration
 	Err      error
+	Dropped  []DroppedFinding
 }
