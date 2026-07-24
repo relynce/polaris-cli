@@ -6,8 +6,7 @@ pushed change set, and gates the commit/push on findings above a severity
 threshold. This guide covers installing it as a pre-commit or pre-push
 hook.
 
-For the whole-repo agentic scan, use the `/rvl:scan` skill instead. For
-the fast pattern-matcher scan, see [local-scanner.md](local-scanner.md).
+For the whole-repo agentic scan, use the `/rvl:scan` skill instead.
 
 ## Prerequisites
 
@@ -119,8 +118,8 @@ scanner:
     # NOTE: there is deliberately NO agent command/binary field here.
     # A custom command is a user-level setting only (see Custom agents).
 
-  # Waivers are shared with the local scanner; agent findings key on the
-  # lens RULE SLUG (e.g. missing-timeout, silent-error-swallow).
+  # Waivers key on the lens RULE SLUG (e.g. missing-timeout,
+  # silent-error-swallow).
   waivers:
     - matcher: missing-timeout
       paths: ["internal/experimental/**"]

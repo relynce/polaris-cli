@@ -41,7 +41,6 @@ type agentScanArgs struct {
 	changedOnly    bool
 	prePush        bool // po-66evv.9: read githooks ref lines from stdin
 	baseRef        string
-	localMode      bool // set when --local was also passed (invalid combo)
 	mode           string
 	failOn         string
 	model          string
@@ -77,9 +76,6 @@ const forceThroughHint = "commit blocked; use RVL_FORCE=1 or 'rvl scan force-nex
 // validateAgentScanFlags rejects invalid `--agent` flag combinations.
 // Callers map a non-nil error to exit code 2 with a usage message.
 func validateAgentScanFlags(a agentScanArgs) error {
-	if a.localMode {
-		return errors.New("--agent and --local are mutually exclusive")
-	}
 	modes := 0
 	for _, on := range []bool{a.staged, a.changedOnly, a.prePush} {
 		if on {

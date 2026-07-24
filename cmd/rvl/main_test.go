@@ -155,7 +155,7 @@ func TestUsageErrorContract(t *testing.T) {
 		{"status unknown flag", []string{"status", "--bogus"}, "unknown flag: --bogus"},
 		{"scan unknown flag", []string{"scan", "--bogus"}, "unknown flag: --bogus"},
 		{"scan missing service value", []string{"scan", "--service"}, "--service requires a value"},
-		{"scan local missing base value", []string{"scan", "--local", "--base"}, "--base requires a value"},
+		{"scan missing base value", []string{"scan", "--base"}, "--base requires a value"},
 		{"review unknown flag", []string{"review", "--bogus"}, "unknown flag: --bogus"},
 		{"review missing commit value", []string{"review", "--commit"}, "--commit requires a value"},
 		{"review bad format", []string{"review", "--format=bogus"}, "--format must be text or json"},

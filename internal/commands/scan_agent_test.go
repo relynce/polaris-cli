@@ -26,7 +26,6 @@ func TestValidateAgentScanFlags(t *testing.T) {
 		{"pre-push is valid", agentScanArgs{prePush: true}, ""},
 		{"staged and pre-push conflict", agentScanArgs{staged: true, prePush: true}, "mutually exclusive"},
 		{"one change-set mode required", agentScanArgs{}, "one of --staged, --changed-only, or --pre-push"},
-		{"agent and local conflict", agentScanArgs{staged: true, localMode: true}, "--local"},
 		{"invalid format", agentScanArgs{staged: true, format: "yaml"}, "invalid --format"},
 	}
 	for _, c := range cases {

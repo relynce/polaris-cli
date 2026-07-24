@@ -11,6 +11,11 @@ import (
 	"github.com/revelara-ai/rvl-cli/internal/scanner"
 )
 
+// scannerVersion is the scanner submission version string, sent as the
+// SkillVersion on agent-scan submissions. (Relocated here when the local
+// matcher scanner was retired; it is the only remaining user.)
+const scannerVersion = "0.1.0"
+
 // This file implements `rvl scan --agent --submit` (po-66evv.11): the
 // opt-in POST of agent-scan findings to /api/v1/risks/scan, reusing the
 // local scanner's submitScan transport. Submission is observability, not
