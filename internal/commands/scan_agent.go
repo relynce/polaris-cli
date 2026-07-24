@@ -366,6 +366,20 @@ func runOnePipeline(ctx context.Context, cfg agentscan.PipelineConfig, cs agents
 // pushed sha (never HEAD), and aggregates the worst exit code. Returns
 // the process exit code.
 func runAgentPrePush(ctx context.Context, a agentScanArgs, root, absTarget string, settings agentScanSettings, baseCfg agentscan.PipelineConfig) int {
+	// --pre-push reads git's ref lines from stdin. When it is run
+	// interactively (stdin is a terminal, not a pipe from git), the read
+	// would block forever with no indication and swallow Ctrl+C, since
+	// the signal handler is already installed. Detect that and exit with
+	// guidance instead of hanging.
+	if fi, statErr := os.Stdin.Stat(); statErr == nil && stdinIsInteractive(fi.Mode()) {
+		fmt.Fprintln(os.Stderr, "Error: --pre-push reads git's pushed-ref lines from stdin; it is a hook entrypoint, not an interactive command.")
+		fmt.Fprintln(os.Stderr, "Install it with: rvl hook install --pre-push")
+		fmt.Fprintln(os.Stderr, "Or feed a ref line manually, e.g.:")
+		fmt.Fprintln(os.Stderr, "  echo \"refs/heads/$(git branch --show-current) $(git rev-parse HEAD) refs/heads/main $(git rev-parse origin/main)\" | rvl scan --agent --pre-push")
+		fmt.Fprintln(os.Stderr, "For a manual scan of committed changes, use: rvl scan --agent --changed-only --base <ref>")
+		return cliutil.ExitUsage
+	}
+
 	refs, err := agentscan.ParsePrePushRefs(os.Stdin)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -431,6 +445,14 @@ func runAgentPrePush(ctx context.Context, a agentScanArgs, root, absTarget strin
 		}
 	}
 	return worst
+}
+
+// stdinIsInteractive reports whether stdin's mode is a character device
+// (a terminal), meaning --pre-push was run interactively rather than fed
+// ref lines by git. A pipe or regular file (the real hook case) is not a
+// char device.
+func stdinIsInteractive(mode os.FileMode) bool {
+	return mode&os.ModeCharDevice != 0
 }
 
 // shortSha abbreviates a sha for display; non-sha refs pass through.

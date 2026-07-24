@@ -3,6 +3,7 @@ package commands
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -187,5 +188,20 @@ func TestClassifyLensErr(t *testing.T) {
 		if got := classifyLensErr(c.err); got != c.want {
 			t.Errorf("classifyLensErr(%v) = %q, want %q", c.err, got, c.want)
 		}
+	}
+}
+
+func TestStdinIsInteractive(t *testing.T) {
+	// A char device (terminal) is interactive.
+	if !stdinIsInteractive(os.ModeCharDevice | 0o620) {
+		t.Error("char device must be interactive")
+	}
+	// A pipe (git hook feeding ref lines) is NOT interactive.
+	if stdinIsInteractive(os.ModeNamedPipe | 0o600) {
+		t.Error("named pipe must not be interactive")
+	}
+	// A regular file (redirected input) is NOT interactive.
+	if stdinIsInteractive(0o644) {
+		t.Error("regular file must not be interactive")
 	}
 }
