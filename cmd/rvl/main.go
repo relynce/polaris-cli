@@ -174,6 +174,8 @@ func main() {
 		commands.CmdStatus(os.Args[2:], version, gitHash)
 	case "scan":
 		commands.CmdScan(os.Args[2:], version)
+	case "hook":
+		commands.CmdHook(os.Args[2:])
 	case "risk":
 		commands.CmdRisk(os.Args[2:])
 	case "control":
@@ -223,6 +225,7 @@ Commands:
   logout             Remove stored credentials
   status             Check connection and authentication status
   scan               Submit risk findings to Revelara
+  hook               Install or check the agent-scan git hook (install, doctor)
   review             Review a commit or PR for reliability risks (CI/CD gate)
   risk               Manage risk lifecycle (list, show, resolve, accept, etc.)
   control            Query reliability controls catalog
