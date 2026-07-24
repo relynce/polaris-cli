@@ -212,6 +212,13 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 				os.Exit(2)
 			}
 			scanOpts.OnlyFiles = files
+			if len(files) == 0 {
+				// po-t8acf: a set base ref with an empty diff means "no
+				// changes to scan", not "scan everything". The non-nil
+				// empty OnlyFiles makes the engine walk zero files; say
+				// so explicitly instead of silently reporting 0 findings.
+				fmt.Fprintf(os.Stderr, "no changed files vs %s; nothing to scan\n", res.Ref)
+			}
 			changedHunks, err = scanner.ResolveChangedHunks(absTarget, res.Ref)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: git diff hunks: %v\n", err)

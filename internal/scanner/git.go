@@ -106,20 +106,28 @@ func FormatNoBaseRefDiagnostic(res BaseRefResolution) string {
 
 // ResolveChangedFiles returns relative file paths (forward-slash) that
 // have changed between baseRef and HEAD. Returns nil with no error if
-// baseRef is empty (caller signals "scan everything"). The result is
-// suitable for ScanOptions.OnlyFiles.
+// baseRef is empty (caller signals "scan everything"). When baseRef is
+// set and the diff is genuinely empty, returns a non-nil empty slice so
+// callers can distinguish "no changes" (scan nothing) from "no base"
+// (scan everything). The result is suitable for ScanOptions.OnlyFiles.
+//
+// po-t8acf: the revision range must precede `--`; with the range after
+// `--`, git parses it as a pathspec and the diff is silently empty.
 func ResolveChangedFiles(root, baseRef string) ([]string, error) {
 	if baseRef == "" {
 		return nil, nil
 	}
-	cmd := exec.Command("git", "-C", root, "diff", "--name-only", "--", baseRef+"...HEAD")
+	if strings.HasPrefix(baseRef, "-") {
+		return nil, fmt.Errorf("invalid base ref %q: leading dash", baseRef)
+	}
+	cmd := exec.Command("git", "-C", root, "diff", "--name-only", baseRef+"...HEAD", "--")
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git diff against %s: %w", baseRef, err)
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	var files []string
+	files := []string{}
 	for _, l := range lines {
 		l = strings.TrimSpace(l)
 		if l == "" {

@@ -37,9 +37,13 @@ func ResolveChangedHunks(root, baseRef string) (map[string][]LineRange, error) {
 	if baseRef == "" {
 		return nil, nil
 	}
+	if strings.HasPrefix(baseRef, "-") {
+		return nil, fmt.Errorf("invalid base ref %q: leading dash", baseRef)
+	}
 	// -U0 strips context lines so hunks shrink to just the touched
 	// lines. Cleaner range data; same hunk-header semantics.
-	cmd := exec.Command("git", "-C", root, "diff", "-U0", "--", baseRef+"...HEAD")
+	// po-t8acf: the range must precede `--` or git parses it as a pathspec.
+	cmd := exec.Command("git", "-C", root, "diff", "-U0", baseRef+"...HEAD", "--")
 	cmd.Stderr = os.Stderr
 	out, err := cmd.Output()
 	if err != nil {

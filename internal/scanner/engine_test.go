@@ -337,3 +337,27 @@ func TestConvertWithoutRollupKeyPreservesLegacyBehavior(t *testing.T) {
 		t.Errorf("expected 3 per-location findings with no RollupKey, got %d", len(findings))
 	}
 }
+
+// po-t8acf: OnlyFiles nil-vs-empty contract. Nil walks everything;
+// a non-nil empty slice (change-scoped scan with zero changed files)
+// must scan nothing rather than fall back to a full walk.
+func TestWalkFilesOnlyFilesNilVsEmpty(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "a.go", "package p\n")
+
+	got, _, err := walkFiles(root, ScanOptions{OnlyFiles: nil})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) == 0 {
+		t.Fatal("nil OnlyFiles must walk everything; walked 0 files")
+	}
+
+	got, _, err = walkFiles(root, ScanOptions{OnlyFiles: []string{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("non-nil empty OnlyFiles must scan nothing; walked %d files", len(got))
+	}
+}

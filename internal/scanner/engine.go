@@ -227,7 +227,10 @@ func walkFiles(root string, opts ScanOptions) ([]walkedFile, int64, error) {
 	for _, f := range opts.OnlyFiles {
 		onlyFiles[NormalizePath(f)] = true
 	}
-	useOnly := len(onlyFiles) > 0
+	// po-t8acf: nil = no scoping (walk everything); non-nil empty =
+	// change-scoped with zero changed files (scan nothing). Keyed on
+	// nil-ness so an empty change set cannot fall back to a full walk.
+	useOnly := opts.OnlyFiles != nil
 
 	excludePaths := opts.ExcludePaths
 

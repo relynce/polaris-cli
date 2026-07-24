@@ -186,7 +186,7 @@ type ScanOptions struct {
 	Root            string
 	Service         string
 	Languages       []string // override auto-detected (empty = auto)
-	OnlyFiles       []string // for --changed-only; empty = walk everything
+	OnlyFiles       []string // for --changed-only; nil = walk everything, non-nil empty = scan nothing (po-t8acf)
 	OnlyMatchers    []string // for --matchers; empty = all applicable
 	ExcludeMatchers map[string]bool
 	ExcludePaths    []string
