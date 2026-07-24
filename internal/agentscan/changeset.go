@@ -44,14 +44,28 @@ func StagedChangeSet(root string) (ChangeSet, error) {
 // scan view. baseRef must be non-empty and must not start with a dash
 // (argument injection guard, po-t8acf).
 func RangeChangeSet(root, baseRef string) (ChangeSet, error) {
-	baseRef = strings.TrimSpace(baseRef)
-	if baseRef == "" {
-		return ChangeSet{}, fmt.Errorf("range change set: base ref is empty")
+	return RangeChangeSetBetween(root, baseRef, "HEAD")
+}
+
+// RangeChangeSetBetween computes the change set for base...head (changes
+// on head's side since the merge base of base and head). Pre-push uses
+// it with head = the pushed sha, not HEAD, since the pushed ref may not
+// be the checked-out branch (po-66evv.9). Both refs must be non-empty
+// and dash-free (argument injection guard, po-t8acf).
+func RangeChangeSetBetween(root, base, head string) (ChangeSet, error) {
+	base = strings.TrimSpace(base)
+	head = strings.TrimSpace(head)
+	if base == "" || head == "" {
+		return ChangeSet{}, fmt.Errorf("range change set: base or head is empty")
 	}
-	if strings.HasPrefix(baseRef, "-") {
-		return ChangeSet{}, fmt.Errorf("invalid base ref %q: leading dash", baseRef)
+	if strings.HasPrefix(base, "-") {
+		return ChangeSet{}, fmt.Errorf("invalid base ref %q: leading dash", base)
 	}
-	return changeSet(root, baseRef+"...HEAD", baseRef+"...HEAD")
+	if strings.HasPrefix(head, "-") {
+		return ChangeSet{}, fmt.Errorf("invalid head ref %q: leading dash", head)
+	}
+	rng := base + "..." + head
+	return changeSet(root, rng, rng)
 }
 
 // changeSet runs the two diff invocations that make up a ChangeSet.

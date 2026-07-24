@@ -26,6 +26,11 @@ const (
 	// chunked diff cannot launch unbounded agent processes.
 	DefaultMaxInvocations = 12
 
+	// DefaultMaxPrePushRefs caps how many pushed refs a single pre-push
+	// invocation scans, so `git push --all` cannot fan out unbounded
+	// per-ref scans (po-66evv.9).
+	DefaultMaxPrePushRefs = 3
+
 	// baseDescStaged is the BaseDesc value StagedChangeSet produces; the
 	// pipeline keys snapshot mode on it (index vs HEAD tree).
 	baseDescStaged = "staged"
@@ -66,6 +71,11 @@ type PipelineConfig struct {
 	// Keyed on rule slug + file glob; a waived finding is reported but
 	// never gates. Populated by the CLI from .revelara.yaml waivers.
 	Waivers []Waiver
+	// SnapshotTreeish overrides the tree the snapshot reads in range
+	// mode (po-66evv.9). Empty means HEAD (the --changed-only default);
+	// pre-push sets it to the pushed sha, since the pushed ref may not be
+	// the checked-out branch. Ignored in staged mode (index is read).
+	SnapshotTreeish string
 }
 
 // PipelineResult is everything one scan produced. Notices MUST be
@@ -268,7 +278,11 @@ func RunPipeline(ctx context.Context, cfg PipelineConfig, cs ChangeSet) (Pipelin
 	if cs.BaseDesc == baseDescStaged {
 		snapDir, cleanup, err = SnapshotIndex(cfg.Root, filtered.Present())
 	} else {
-		snapDir, cleanup, err = SnapshotTree(cfg.Root, "HEAD", filtered.Present())
+		treeish := cfg.SnapshotTreeish
+		if treeish == "" {
+			treeish = "HEAD"
+		}
+		snapDir, cleanup, err = SnapshotTree(cfg.Root, treeish, filtered.Present())
 	}
 	if err != nil {
 		return finishInfra(cfg, res, fmt.Errorf("snapshot: %w", err)), nil

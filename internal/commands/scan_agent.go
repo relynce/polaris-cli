@@ -39,6 +39,7 @@ type agentScanArgs struct {
 	targetDir      string
 	staged         bool
 	changedOnly    bool
+	prePush        bool // po-66evv.9: read githooks ref lines from stdin
 	baseRef        string
 	localMode      bool // set when --local was also passed (invalid combo)
 	mode           string
@@ -77,11 +78,17 @@ func validateAgentScanFlags(a agentScanArgs) error {
 	if a.localMode {
 		return errors.New("--agent and --local are mutually exclusive")
 	}
-	if a.staged && a.changedOnly {
-		return errors.New("--staged and --changed-only are mutually exclusive")
+	modes := 0
+	for _, on := range []bool{a.staged, a.changedOnly, a.prePush} {
+		if on {
+			modes++
+		}
 	}
-	if !a.staged && !a.changedOnly {
-		return errors.New("--agent requires one of --staged or --changed-only")
+	if modes > 1 {
+		return errors.New("--staged, --changed-only, and --pre-push are mutually exclusive")
+	}
+	if modes == 0 {
+		return errors.New("--agent requires one of --staged, --changed-only, or --pre-push")
 	}
 	if a.format != "" {
 		if err := cliutil.ValidateFormat(strings.ToLower(a.format), "human", "json"); err != nil {
@@ -233,6 +240,25 @@ func runAgentScan(a agentScanArgs) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Shared pipeline config; the change set and snapshot treeish are set
+	// per run (one run for staged/changed-only, one per pushed ref for
+	// pre-push).
+	baseCfg := agentscan.PipelineConfig{
+		Root:                root,
+		Adapter:             agentscan.NewClaudeAdapter(agentscan.AdapterConfig{Model: settings.Model, Timeout: settings.Timeout, Binary: settings.Binary}),
+		FailOn:              settings.FailOn,
+		Mode:                settings.Mode,
+		StrictErrors:        settings.StrictErrors,
+		ExtraGeneratedGlobs: settings.GeneratedGlobs,
+		BudgetWarnUSD:       settings.BudgetWarnUSD,
+		MaxInvocations:      settings.MaxInvocations,
+		Waivers:             waivers,
+	}
+
+	if a.prePush {
+		os.Exit(runAgentPrePush(ctx, a, root, absTarget, settings, baseCfg))
+	}
+
 	var cs agentscan.ChangeSet
 	if a.staged {
 		cs, err = agentscan.StagedChangeSet(root)
@@ -258,45 +284,37 @@ func runAgentScan(a agentScanArgs) {
 		os.Exit(cliutil.ExitUsage)
 	}
 
-	adapter := agentscan.NewClaudeAdapter(agentscan.AdapterConfig{
-		Model:   settings.Model,
-		Timeout: settings.Timeout,
-		Binary:  settings.Binary,
-	})
-	result, err := agentscan.RunPipeline(ctx, agentscan.PipelineConfig{
-		Root:                root,
-		Adapter:             adapter,
-		FailOn:              settings.FailOn,
-		Mode:                settings.Mode,
-		StrictErrors:        settings.StrictErrors,
-		ExtraGeneratedGlobs: settings.GeneratedGlobs,
-		BudgetWarnUSD:       settings.BudgetWarnUSD,
-		MaxInvocations:      settings.MaxInvocations,
-		Waivers:             waivers,
-	}, cs)
+	os.Exit(runOnePipeline(ctx, baseCfg, cs, a, settings, absTarget))
+}
+
+// runOnePipeline runs the pipeline over one change set and returns the
+// process exit code (rather than calling os.Exit), so the pre-push path
+// can aggregate results across multiple pushed refs. It handles the
+// error taxonomy, optional submit, and report printing.
+func runOnePipeline(ctx context.Context, cfg agentscan.PipelineConfig, cs agentscan.ChangeSet, a agentScanArgs, settings agentScanSettings, absTarget string) int {
+	result, err := agentscan.RunPipeline(ctx, cfg, cs)
 	if err != nil {
 		switch {
 		case errors.Is(err, context.Canceled):
 			fmt.Fprintln(os.Stderr, "agent scan aborted")
-			os.Exit(130)
+			return 130
 		case errors.Is(err, agentscan.ErrSecretsDetected):
 			// HARD refusal: never routed through the infra fail-open
 			// path. Enforce blocks; eval exits 0 but warns loudly.
 			printSecretsRefusal(err, settings.Mode)
 			if settings.Mode == agentscan.GateModeEnforce {
-				os.Exit(cliutil.ExitError)
+				return cliutil.ExitError
 			}
-			os.Exit(cliutil.ExitOK)
+			return cliutil.ExitOK
 		default:
 			fmt.Fprintf(os.Stderr, "Error: agent scan failed: %v\n", err)
-			os.Exit(cliutil.ExitError)
+			return cliutil.ExitError
 		}
 	}
 
 	// po-66evv.11: --submit is opt-in observability. It runs after the
 	// gate decision and never changes the exit code; a submission failure
-	// is a warning. The gate-outcome / fail-open metadata gap is
-	// documented in scan_agent_submit.go.
+	// is a warning.
 	if a.submit && !result.Skipped {
 		submitAgentScan(result, resolveSubmitService(a.service, absTarget), settings.Mode, a.timeout)
 	}
@@ -308,15 +326,95 @@ func runAgentScan(a agentScanArgs) {
 	}
 
 	if result.Skipped {
-		os.Exit(cliutil.ExitOK)
+		return cliutil.ExitOK
 	}
-
-	// Force-through is handled at the top of this function (it skips the
+	// Force-through is handled at the top of runAgentScan (it skips the
 	// scan entirely), so by here the gate decision stands.
 	if result.Blocked {
-		os.Exit(cliutil.ExitError)
+		return cliutil.ExitError
 	}
-	os.Exit(cliutil.ExitOK)
+	return cliutil.ExitOK
+}
+
+// runAgentPrePush is the `rvl scan --agent --pre-push` entrypoint
+// (po-66evv.9). It reads githooks(5) ref lines from stdin, resolves each
+// pushed ref to a base...sha range (skipping deletes and tags), scans the
+// pushed sha (never HEAD), and aggregates the worst exit code. Returns
+// the process exit code.
+func runAgentPrePush(ctx context.Context, a agentScanArgs, root, absTarget string, settings agentScanSettings, baseCfg agentscan.PipelineConfig) int {
+	refs, err := agentscan.ParsePrePushRefs(os.Stdin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return cliutil.ExitUsage
+	}
+	if len(refs) == 0 {
+		// No refs on stdin (e.g. invoked outside a real pre-push hook).
+		fmt.Fprintln(os.Stderr, "no pushed refs on stdin; nothing to scan")
+		return cliutil.ExitOK
+	}
+
+	// Default base resolver: the existing config/env chain, else origin
+	// default branch. Used only when a pushed ref has no usable
+	// remote-sha (e.g. the first push of a new branch).
+	defaultBase := func() (string, bool) {
+		resolved, rerr := scanner.ResolveBaseRef(scanner.ChangedOnlyConfig{
+			Root:        root,
+			FlagBaseRef: a.baseRef,
+			Env: map[string]string{
+				"RVL_BASE_REF":    os.Getenv("RVL_BASE_REF"),
+				"GITHUB_BASE_REF": os.Getenv("GITHUB_BASE_REF"),
+			},
+		})
+		if rerr == nil && resolved.Ref != "" {
+			return resolved.Ref, true
+		}
+		for _, cand := range []string{"origin/HEAD", "origin/main", "origin/master"} {
+			if agentscan.RefReachable(root, cand) {
+				return cand, true
+			}
+		}
+		return "", false
+	}
+
+	scans, notices := agentscan.ResolvePrePushScans(root, refs, defaultBase, agentscan.DefaultMaxPrePushRefs)
+	for _, n := range notices {
+		fmt.Fprintf(os.Stderr, "pre-push: %s\n", n)
+	}
+	if len(scans) == 0 {
+		fmt.Fprintln(os.Stderr, "pre-push: no ref ranges to scan")
+		return cliutil.ExitOK
+	}
+
+	worst := cliutil.ExitOK
+	for _, s := range scans {
+		fmt.Printf("\n=== pre-push scan: %s (%s..%s) ===\n", s.Ref, shortSha(s.Base), shortSha(s.Sha))
+		cs, cerr := agentscan.RangeChangeSetBetween(root, s.Base, s.Sha)
+		if cerr != nil {
+			fmt.Fprintf(os.Stderr, "Error: compute change set for %s: %v\n", s.Ref, cerr)
+			if worst < cliutil.ExitError {
+				worst = cliutil.ExitError
+			}
+			continue
+		}
+		cfg := baseCfg
+		cfg.SnapshotTreeish = s.Sha
+		code := runOnePipeline(ctx, cfg, cs, a, settings, absTarget)
+		if code == 130 {
+			return 130 // user abort short-circuits
+		}
+		if code > worst {
+			worst = code
+		}
+	}
+	return worst
+}
+
+// shortSha abbreviates a sha for display; non-sha refs pass through.
+func shortSha(s string) string {
+	if len(s) > 12 {
+		return s[:12]
+	}
+	return s
 }
 
 // handleForceThrough prints the loud override notice, records the local

@@ -358,6 +358,7 @@ func CmdScan(args []string, version string) {
 	// agent scan; the rest are agent-mode-only.
 	var agentMode bool
 	var stagedFlag bool
+	var prePushFlag bool
 	var failOnFlag string
 	var modelFlag string
 	var agentBinaryFlag string
@@ -414,6 +415,8 @@ func CmdScan(args []string, version string) {
 			localMode = true
 		case "--agent":
 			agentMode = true
+		case "--pre-push":
+			prePushFlag = true
 		case "--staged":
 			stagedFlag = true
 		case "--fail-on":
@@ -559,6 +562,7 @@ func CmdScan(args []string, version string) {
 			targetDir:      targetDir,
 			staged:         stagedFlag,
 			changedOnly:    changedOnly,
+			prePush:        prePushFlag,
 			baseRef:        baseRef,
 			localMode:      localMode,
 			mode:           scanModeFlag,
@@ -573,8 +577,8 @@ func CmdScan(args []string, version string) {
 		})
 		return
 	}
-	if stagedFlag || failOnFlag != "" || modelFlag != "" || agentBinaryFlag != "" || timeoutSecondsFlag != "" {
-		fmt.Fprintln(os.Stderr, "Error: --staged, --fail-on, --model, --agent-binary, and --timeout-seconds require --agent")
+	if stagedFlag || prePushFlag || failOnFlag != "" || modelFlag != "" || agentBinaryFlag != "" || timeoutSecondsFlag != "" {
+		fmt.Fprintln(os.Stderr, "Error: --staged, --pre-push, --fail-on, --model, --agent-binary, and --timeout-seconds require --agent")
 		os.Exit(cliutil.ExitUsage)
 	}
 
