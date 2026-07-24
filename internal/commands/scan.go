@@ -567,6 +567,9 @@ func CmdScan(args []string, version string) {
 			agentBinary:    agentBinaryFlag,
 			timeoutSeconds: timeoutSecondsFlag,
 			format:         format,
+			submit:         submit,
+			service:        service,
+			timeout:        timeoutFlag,
 		})
 		return
 	}

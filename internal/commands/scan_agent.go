@@ -47,6 +47,9 @@ type agentScanArgs struct {
 	agentBinary    string
 	timeoutSeconds string
 	format         string
+	submit         bool   // po-66evv.11: opt-in POST to the risks scan endpoint
+	service        string // service name for submission (or from .revelara.yaml)
+	timeout        string // submission HTTP timeout override (e.g. 90s)
 }
 
 // agentScanSettings is the effective configuration after merging flags
@@ -290,9 +293,13 @@ func runAgentScan(a agentScanArgs) {
 		}
 	}
 
-	// TODO(po-66evv.11): --submit - POST the aggregated findings plus
-	// fail-open and force-through events to /api/v1/risks/scan here,
-	// after the pipeline result exists and before exit-code mapping.
+	// po-66evv.11: --submit is opt-in observability. It runs after the
+	// gate decision and never changes the exit code; a submission failure
+	// is a warning. The gate-outcome / fail-open metadata gap is
+	// documented in scan_agent_submit.go.
+	if a.submit && !result.Skipped {
+		submitAgentScan(result, resolveSubmitService(a.service, absTarget), settings.Mode, a.timeout)
+	}
 
 	if strings.EqualFold(a.format, "json") {
 		printAgentScanJSON(result, settings)
