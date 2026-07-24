@@ -642,9 +642,9 @@ func gateSummaryLine(res agentscan.PipelineResult, s agentScanSettings) string {
 }
 
 // printAgentScanHuman renders the human report: per-lens lines,
-// aggregated findings, notices, total cost, then exactly one gate line.
-// A blocked run ends with the force-through hint; a fail-open run ends
-// with the red banner as the very last line.
+// aggregated findings, notices, then exactly one gate line. Cost is not
+// shown (see the note below). A blocked run ends with the force-through
+// hint; a fail-open run ends with the red banner as the very last line.
 func printAgentScanHuman(res agentscan.PipelineResult, s agentScanSettings) {
 	if res.Skipped {
 		fmt.Println(res.SkipNotice)
@@ -654,12 +654,12 @@ func printAgentScanHuman(res agentscan.PipelineResult, s agentScanSettings) {
 	fmt.Println("Lenses:")
 	for _, lr := range res.LensResults {
 		if lr.Err != nil {
-			fmt.Printf("  %-14s [%s] %v (%.1fs, $%.2f)\n",
-				lr.Lens.ID, classifyLensErr(lr.Err), lr.Err, lr.Wall.Seconds(), lr.CostUSD)
+			fmt.Printf("  %-14s [%s] %v (%.1fs)\n",
+				lr.Lens.ID, classifyLensErr(lr.Err), lr.Err, lr.Wall.Seconds())
 			continue
 		}
-		fmt.Printf("  %-14s %d finding(s), %d dropped, %.1fs, $%.2f\n",
-			lr.Lens.ID, len(lr.Findings), len(lr.Dropped), lr.Wall.Seconds(), lr.CostUSD)
+		fmt.Printf("  %-14s %d finding(s), %d dropped, %.1fs\n",
+			lr.Lens.ID, len(lr.Findings), len(lr.Dropped), lr.Wall.Seconds())
 	}
 	for _, lr := range res.LensResults {
 		for _, d := range lr.Dropped {
@@ -695,12 +695,11 @@ func printAgentScanHuman(res agentscan.PipelineResult, s agentScanSettings) {
 			fmt.Printf("  - %s\n", n)
 		}
 	}
-	cost := fmt.Sprintf("Total agent cost: $%.2f", res.TotalCostUSD)
-	if s.BudgetWarnUSD > 0 {
-		cost += fmt.Sprintf(" (budget warn at $%.2f)", s.BudgetWarnUSD)
-	}
+	// Cost is deliberately not printed: claude -p reports an API-list-price
+	// figure that does not reflect actual spend on a subscription plan, so
+	// showing it as "cost" is misleading. The raw number stays in --format
+	// json for tooling that wants it, and budget_warn still fires there.
 	fmt.Println()
-	fmt.Println(cost)
 	fmt.Println(gateSummaryLine(res, s))
 	if res.Blocked {
 		fmt.Println(forceThroughHint)
@@ -716,7 +715,6 @@ type agentLensReport struct {
 	Findings   []agentscan.Finding   `json:"findings"`
 	Dropped    []agentDroppedFinding `json:"dropped,omitempty"`
 	Summary    string                `json:"summary,omitempty"`
-	CostUSD    float64               `json:"cost_usd"`
 	WallMS     int64                 `json:"wall_ms"`
 	Error      string                `json:"error,omitempty"`
 	ErrorClass string                `json:"error_class,omitempty"`
@@ -744,7 +742,6 @@ type agentScanReport struct {
 	Findings     []agentscan.Finding  `json:"findings"`
 	Waived       []agentWaivedFinding `json:"waived,omitempty"`
 	Notices      []string             `json:"notices,omitempty"`
-	TotalCostUSD float64              `json:"total_cost_usd"`
 	Degraded     bool                 `json:"degraded"`
 	FileListMode bool                 `json:"file_list_mode"`
 	InfraErrors  []string             `json:"infra_errors,omitempty"`
@@ -767,7 +764,6 @@ func printAgentScanJSON(res agentscan.PipelineResult, s agentScanSettings) {
 		Lenses:       make([]agentLensReport, 0, len(res.LensResults)),
 		Findings:     res.Findings,
 		Notices:      res.Notices,
-		TotalCostUSD: res.TotalCostUSD,
 		Degraded:     res.Degraded,
 		Waived:       mapWaivedReport(res.Waived),
 		FileListMode: res.FileListMode,
@@ -781,7 +777,6 @@ func printAgentScanJSON(res agentscan.PipelineResult, s agentScanSettings) {
 			Lens:     lr.Lens.ID,
 			Findings: lr.Findings,
 			Summary:  lr.Summary,
-			CostUSD:  lr.CostUSD,
 			WallMS:   lr.Wall.Milliseconds(),
 		}
 		for _, d := range lr.Dropped {
