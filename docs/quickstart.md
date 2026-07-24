@@ -213,7 +213,9 @@ Run `rvl init` to install skills. If you've already run init, try `rvl init --fo
 
 4. **Read the Full User Guide** — For comprehensive coverage of all features, see the [User Guide](user-guide.md).
 
-5. **Check Feature Maturity** — Some features are still beta or alpha (notably the local scanner). See the [feature maturity reference](maturity.md) before relying on them in CI.
+5. **Gate Your Commits (optional)** — `rvl scan --agent` runs a change-scoped reliability review over your staged or pushed changes and can be installed as a pre-commit or pre-push git hook. See the [agent scan hooks guide](agent-scan-hooks.md).
+
+6. **Check Feature Maturity** — Some features are still beta or alpha. See the [feature maturity reference](maturity.md) before relying on them in CI.
 
 ## Questions?
 

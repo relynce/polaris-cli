@@ -79,14 +79,31 @@ pair, so the last one to run would replace the other's block.)
 | `rvl config` | View and edit configuration |
 | `rvl version` | Show version info |
 
+## Change-scoped agent scan
+
+`rvl scan --agent` runs a change-scoped reliability review over just your
+staged or pushed change set, using headless coding-agent lenses, and gates
+the commit/push on findings above a severity threshold. It's built to run
+as a pre-commit or pre-push git hook:
+
+```bash
+rvl hook install --pre-commit    # gate commits on the staged change set
+rvl hook install --pre-push      # gate pushes
+rvl scan --agent --staged        # run it manually
+```
+
+Configure it under `scanner.agent` in `.revelara.yaml`. See the
+[agent scan hooks guide](docs/agent-scan-hooks.md) for installation, the
+enforce vs eval modes, waivers, and CI usage.
+
 ## Feature maturity
 
 Not every command and feature is equally mature. Most of the CLI is
 production-ready; a few features are still **beta** or **alpha**. Notably,
-`rvl scan --local` and its `.revelara.yaml` `scanner:` section are
-**alpha** (experimental, not production-ready), and `rvl scan --auto-infer`
-is alpha too. See the [feature maturity reference](docs/maturity.md) for
-the full breakdown and tier definitions.
+`rvl scan --agent` and its `.revelara.yaml` `scanner:` section are
+**beta**, and `rvl scan --auto-infer` is **alpha**. See the
+[feature maturity reference](docs/maturity.md) for the full breakdown and
+tier definitions.
 
 ## Configuration
 
@@ -107,7 +124,7 @@ For headless and CI environments with no config file, credentials can be supplie
 ```bash
 # CI example: no `rvl login` needed
 export RVL_API_KEY="$REVELARA_API_KEY_SECRET"
-rvl scan --local --target . --format json
+rvl scan --agent --changed-only --base main --format json
 ```
 
 ## Exit Codes
@@ -118,7 +135,7 @@ rvl scan --local --target . --format json
 | 1 | Runtime failure (API error, authentication failure, network problem) |
 | 2 | Usage error (unknown command, unknown flag, invalid argument) |
 
-Exceptions: `rvl scan --local` uses its documented CI-gate codes (0 = no critical/high findings, 1 = at least one critical/high finding, 2 = scanner error), and `rvl review` follows its `--enforce` / `--fail-closed` contract (advisory mode always exits 0). `rvl knowledge enrich` degrades gracefully: it exits 1 only when every parallel fetch fails; partial failures print warnings on stderr and exit 0.
+Exceptions: `rvl scan --agent` uses its own gate exit codes (0 = pass, eval mode, skip, or infra fail-open; 1 = blocked by a finding at or above `--fail-on` in enforce mode, a secret detection, or a `strict_errors` infra failure; 2 = config/usage error; 130 = interrupted), and `rvl review` follows its `--enforce` / `--fail-closed` contract (advisory mode always exits 0). `rvl knowledge enrich` degrades gracefully: it exits 1 only when every parallel fetch fails; partial failures print warnings on stderr and exit 0.
 
 ## License
 
