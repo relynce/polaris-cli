@@ -36,20 +36,20 @@ const (
 
 // ScanRequest represents the payload sent to the scan endpoint
 type ScanRequest struct {
-	Service      string        `json:"service"`
-	ScanType     ScanType      `json:"scan_type"`
-	ScanMode     string        `json:"scan_mode,omitempty"`
-	Findings     []interface{} `json:"findings"`
-	Metadata     ScanMetadata  `json:"metadata,omitempty"`
+	Service  string        `json:"service"`
+	ScanType ScanType      `json:"scan_type"`
+	ScanMode string        `json:"scan_mode,omitempty"`
+	Findings []interface{} `json:"findings"`
+	Metadata ScanMetadata  `json:"metadata,omitempty"`
 
 	// Control structure data (optional, populated by scan skill Step 1.2)
 	RepoURL          string                    `json:"repo_url,omitempty"`
 	ControlStructure *ScanControlStructureData `json:"control_structure,omitempty"`
 
 	// Service catalog data (optional, populated by detect-risks scans)
-	Stack        *ScanStackInfo   `json:"stack,omitempty"`
-	Components   []ScanComponent  `json:"components,omitempty"`
-	Dependencies []ScanDependency `json:"dependencies,omitempty"`
+	Stack               *ScanStackInfo   `json:"stack,omitempty"`
+	Components          []ScanComponent  `json:"components,omitempty"`
+	Dependencies        []ScanDependency `json:"dependencies,omitempty"`
 	CatalogMeta         *ScanCatalogMeta `json:"catalog_meta,omitempty"`
 	BusinessCriticality *float64         `json:"business_criticality,omitempty"`
 
@@ -160,7 +160,7 @@ type ScanResponse struct {
 	Service          string                      `json:"service"`
 	Summary          ScanSummary                 `json:"summary"`
 	Findings         []ScanResult                `json:"findings"`
-	ControlStructure *ScanControlStructureResult  `json:"control_structure,omitempty"`
+	ControlStructure *ScanControlStructureResult `json:"control_structure,omitempty"`
 	Warnings         []string                    `json:"warnings,omitempty"`
 	Timestamp        string                      `json:"timestamp"`
 
@@ -210,9 +210,9 @@ type ScanSummary struct {
 	Unchanged        int `json:"unchanged"`
 	ResolvedThisScan int `json:"resolved_this_scan,omitempty"` // po-qs96.4 fix: count of risks marked stale because the scan didn't surface them
 	Critical         int `json:"critical"`
-	High      int `json:"high"`
-	Medium    int `json:"medium"`
-	Low       int `json:"low"`
+	High             int `json:"high"`
+	Medium           int `json:"medium"`
+	Low              int `json:"low"`
 }
 
 // ScanResult represents a single risk finding from the scan
@@ -317,6 +317,14 @@ func CmdScan(args []string, version string) {
 		return
 	}
 
+	// po-66evv.6: `rvl scan force-next` is a positional subcommand that
+	// arms the one-shot force-through marker for the next agent gate run.
+	// Intercepted before flag parsing so it is not mistaken for a service.
+	if len(args) >= 1 && args[0] == "force-next" {
+		runForceNext(args[1:])
+		return
+	}
+
 	var service string
 	var inputFile string
 	var csFile string
@@ -338,10 +346,10 @@ func CmdScan(args []string, version string) {
 	var changedOnly bool
 	var baseRef string
 	var scanAllOnMissingBase bool
-	var prComment bool // po-qs96.4
-	var noDedupe bool  // po-jlsd6
-	var scanModeFlag string // po-f96kz
-	var profileFlag string  // po-3vsvk
+	var prComment bool        // po-qs96.4
+	var noDedupe bool         // po-jlsd6
+	var scanModeFlag string   // po-f96kz
+	var profileFlag string    // po-3vsvk
 	var cleanupOnSuccess bool // po-gg5dg: remove --scan-dir after a 2xx submit
 	var timeoutFlag string    // po-p3k56: optional override for scan submission timeout
 	var noDigest bool         // po-ta8wj.1: skip digest.compact read/write

@@ -63,10 +63,10 @@ type agentScanSettings struct {
 	MaxInvocations int
 }
 
-// forceThroughHint is the last line of a blocked scan's output.
-// TODO(po-66evv.6): implement force-through consumption (RVL_FORCE=1
-// env and the one-shot `rvl scan force-next` marker under .git/).
-const forceThroughHint = "commit blocked; use RVL_FORCE=1 or 'rvl scan force-next' to override (po-66evv.6)"
+// forceThroughHint is the last line of a blocked scan's output. Both
+// override paths (RVL_FORCE=1 and `rvl scan force-next`) are consumed at
+// the top of runAgentScan (po-66evv.6).
+const forceThroughHint = "commit blocked; use RVL_FORCE=1 or 'rvl scan force-next' to override"
 
 // validateAgentScanFlags rejects invalid `--agent` flag combinations.
 // Callers map a non-nil error to exit code 2 with a usage message.
@@ -201,6 +201,16 @@ func runAgentScan(a agentScanArgs) {
 		os.Exit(cliutil.ExitUsage)
 	}
 
+	// po-66evv.6: emergency force-through. Checked BEFORE the scan runs,
+	// because a force-through skips the gate entirely (spec: Gate policy)
+	// so it must not pay the scan's wall-clock or cost. The override is
+	// audited locally; TODO(po-66evv.11) submits the event when --submit
+	// is configured.
+	if mechanism, forced, ferr := agentscan.ForceState(root); ferr == nil && forced {
+		handleForceThrough(root, mechanism)
+		os.Exit(cliutil.ExitOK)
+	}
+
 	projectCfg := project.LoadProjectConfigFrom(absTarget)
 	var agentCfg *project.AgentScanConfig
 	var yamlBaseRef string
@@ -294,14 +304,72 @@ func runAgentScan(a agentScanArgs) {
 		os.Exit(cliutil.ExitOK)
 	}
 
-	// TODO(po-66evv.6): force-through consumption - check RVL_FORCE=1
-	// and the one-shot `rvl scan force-next` marker under .git/ HERE,
-	// before Blocked maps to the exit code; log the override, emit the
-	// force-through event when submit is configured, then exit 0.
+	// Force-through is handled at the top of this function (it skips the
+	// scan entirely), so by here the gate decision stands.
 	if result.Blocked {
 		os.Exit(cliutil.ExitError)
 	}
 	os.Exit(cliutil.ExitOK)
+}
+
+// handleForceThrough prints the loud override notice, records the local
+// audit event, and consumes the one-shot marker (idempotent even when
+// the mechanism was the env var, so a stale marker cannot apply later).
+func handleForceThrough(root, mechanism string) {
+	fmt.Fprintln(os.Stderr, ansiRed(fmt.Sprintf(
+		"AGENT SCAN FORCED THROUGH (mechanism: %s) - scan skipped, event audited", mechanism)))
+	if err := agentscan.AppendAuditEvent(root, agentscan.AuditEvent{
+		Kind: agentscan.AuditForceThrough,
+		Detail: map[string]string{
+			"mechanism": mechanism,
+		},
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not write audit event: %v\n", err)
+	}
+	if err := agentscan.ConsumeForceMarker(root); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not consume force marker: %v\n", err)
+	}
+}
+
+// runForceNext arms the one-shot force-through marker (po-66evv.6). The
+// next `rvl scan --agent` run in this repo skips the gate and records an
+// audit event. Accepts an optional --target/-t (or positional) dir.
+func runForceNext(args []string) {
+	target := ""
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--target" || args[i] == "-t":
+			if i+1 < len(args) {
+				i++
+				target = args[i]
+			}
+		case strings.HasPrefix(args[i], "--target="):
+			target = strings.TrimPrefix(args[i], "--target=")
+		case !strings.HasPrefix(args[i], "-"):
+			target = args[i]
+		}
+	}
+	if target == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: cannot get cwd: %v\n", err)
+			os.Exit(cliutil.ExitUsage)
+		}
+		target = cwd
+	}
+	root, err := gitToplevel(target)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(cliutil.ExitUsage)
+	}
+	path, err := agentscan.WriteForceMarker(root)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(cliutil.ExitError)
+	}
+	fmt.Printf("Force-through armed: %s\n", path)
+	fmt.Println("The NEXT `rvl scan --agent` run in this repo will SKIP the gate and record an audit event.")
+	fmt.Println("Remove the marker to cancel: rm " + path)
 }
 
 // mapWaivers converts .revelara.yaml WaiverEntry values into agentscan
