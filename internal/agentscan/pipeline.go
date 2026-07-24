@@ -71,6 +71,11 @@ type PipelineConfig struct {
 	// Keyed on rule slug + file glob; a waived finding is reported but
 	// never gates. Populated by the CLI from .revelara.yaml waivers.
 	Waivers []Waiver
+	// Progress, when non-nil, receives progress events during the run so
+	// the CLI can show live affordances (the agent takes ~1-2 min per
+	// lens). The pipeline serializes calls, so the callback need not be
+	// concurrency-safe itself.
+	Progress func(ProgressEvent)
 	// SnapshotTreeish overrides the tree the snapshot reads in range
 	// mode (po-66evv.9). Empty means HEAD (the --changed-only default);
 	// pre-push sets it to the pushed sha, since the pushed ref may not be
@@ -111,6 +116,31 @@ type PipelineResult struct {
 	BlockedOn  []Finding
 	GateReason string
 	Banner     string
+}
+
+// ProgressKind identifies a progress event (po: live output affordances).
+type ProgressKind string
+
+const (
+	// ProgressChangeSet fires once the filtered change set is known.
+	ProgressChangeSet ProgressKind = "changeset"
+	// ProgressLenses fires once lenses are selected, before the fan-out.
+	ProgressLenses ProgressKind = "lenses"
+	// ProgressLensDone fires as each lens invocation completes.
+	ProgressLensDone ProgressKind = "lens-done"
+)
+
+// ProgressEvent is one live-progress notification. Fields are populated
+// per Kind: ChangeSet sets Files; Lenses sets Lenses; LensDone sets Lens,
+// Findings, Duration, and Err.
+type ProgressEvent struct {
+	Kind     ProgressKind
+	Files    int
+	Lenses   []string
+	Lens     string
+	Findings int
+	Duration time.Duration
+	Err      error
 }
 
 // GateDecision is ComputeGate's verdict. Banner is the fail-open
@@ -211,6 +241,18 @@ func RunPipeline(ctx context.Context, cfg PipelineConfig, cs ChangeSet) (Pipelin
 		return res, err
 	}
 
+	// Progress emitter: nil-safe and serialized, since lens-done events
+	// fire from parallel goroutines.
+	var progressMu sync.Mutex
+	emit := func(e ProgressEvent) {
+		if cfg.Progress == nil {
+			return
+		}
+		progressMu.Lock()
+		defer progressMu.Unlock()
+		cfg.Progress(e)
+	}
+
 	// 1. In-progress git state: merge/rebase/cherry-pick scans are out
 	// of scope in v1; skip with a notice before doing anything else.
 	if reason, skip := SkipReason(cfg.Root); skip {
@@ -260,8 +302,15 @@ func RunPipeline(ctx context.Context, cfg PipelineConfig, cs ChangeSet) (Pipelin
 		chunks = []ChangeSet{budget.ChangeSet}
 	}
 
+	emit(ProgressEvent{Kind: ProgressChangeSet, Files: len(filtered.Files)})
+
 	// 6. Lens selection on the filtered file list.
 	lenses := SelectLenses(filtered.Files)
+	lensIDs := make([]string, len(lenses))
+	for i, l := range lenses {
+		lensIDs[i] = l.ID
+	}
+	emit(ProgressEvent{Kind: ProgressLenses, Lenses: lensIDs})
 
 	// 7. One up-front availability probe (po-66evv.5 handoff contract).
 	if probe, ok := cfg.Adapter.(AvailabilityChecker); ok {
@@ -319,7 +368,15 @@ func RunPipeline(ctx context.Context, cfg PipelineConfig, cs ChangeSet) (Pipelin
 		wg.Add(1)
 		go func(i int, inv invocation) {
 			defer wg.Done()
-			results[i] = RunLens(ctx, cfg.Adapter, inv.lens, inv.chunk, snapDir)
+			r := RunLens(ctx, cfg.Adapter, inv.lens, inv.chunk, snapDir)
+			results[i] = r
+			emit(ProgressEvent{
+				Kind:     ProgressLensDone,
+				Lens:     inv.lens.ID,
+				Findings: len(r.Findings),
+				Duration: r.Wall,
+				Err:      r.Err,
+			})
 		}(i, inv)
 	}
 	wg.Wait()

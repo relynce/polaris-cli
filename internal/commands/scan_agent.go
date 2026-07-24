@@ -278,6 +278,12 @@ func runAgentScan(a agentScanArgs) {
 		MaxInvocations:      settings.MaxInvocations,
 		Waivers:             waivers,
 	}
+	// Live progress affordances for the human report (the agent takes
+	// ~1-2 min/lens). JSON runs stay quiet for scripting. Progress goes
+	// to stderr so it never mixes into --format json stdout.
+	if !strings.EqualFold(a.format, "json") {
+		baseCfg.Progress = agentProgressPrinter()
+	}
 
 	if a.prePush {
 		os.Exit(runAgentPrePush(ctx, a, root, absTarget, settings, baseCfg))
@@ -583,6 +589,33 @@ func gitToplevel(dir string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// agentProgressPrinter returns a progress callback that streams live
+// affordances to stderr during a human-format run: the change-set size,
+// the selected lenses (with the ~1-2 min expectation), and each lens as
+// it completes. Progress is on stderr so it never corrupts stdout.
+func agentProgressPrinter() func(agentscan.ProgressEvent) {
+	return func(e agentscan.ProgressEvent) {
+		switch e.Kind {
+		case agentscan.ProgressChangeSet:
+			fmt.Fprintf(os.Stderr, "Scanning %d changed file(s)...\n", e.Files)
+		case agentscan.ProgressLenses:
+			if len(e.Lenses) == 0 {
+				return
+			}
+			fmt.Fprintf(os.Stderr, "Running %d lens(es) in parallel (the agent takes ~1-2 min): %s\n",
+				len(e.Lenses), strings.Join(e.Lenses, ", "))
+		case agentscan.ProgressLensDone:
+			if e.Err != nil {
+				fmt.Fprintf(os.Stderr, "  %-14s failed: %s (%.1fs)\n",
+					e.Lens, classifyLensErr(e.Err), e.Duration.Seconds())
+				return
+			}
+			fmt.Fprintf(os.Stderr, "  %-14s done: %d finding(s) (%.1fs)\n",
+				e.Lens, e.Findings, e.Duration.Seconds())
+		}
+	}
+}
+
 // printSecretsRefusal prints the loud multi-line secrets refusal. The
 // error message already names each file:line (never values) and points
 // at the repo's secret scanner.
@@ -650,17 +683,10 @@ func printAgentScanHuman(res agentscan.PipelineResult, s agentScanSettings) {
 		fmt.Println(res.SkipNotice)
 		return
 	}
-	fmt.Printf("Agent scan: mode=%s fail_on=%s model=%s\n\n", s.Mode, s.FailOn, s.Model)
-	fmt.Println("Lenses:")
-	for _, lr := range res.LensResults {
-		if lr.Err != nil {
-			fmt.Printf("  %-14s [%s] %v (%.1fs)\n",
-				lr.Lens.ID, classifyLensErr(lr.Err), lr.Err, lr.Wall.Seconds())
-			continue
-		}
-		fmt.Printf("  %-14s %d finding(s), %d dropped, %.1fs\n",
-			lr.Lens.ID, len(lr.Findings), len(lr.Dropped), lr.Wall.Seconds())
-	}
+	// The per-lens completion lines stream live to stderr during the run
+	// (agentProgressPrinter), so the report does not repeat them; it
+	// leads with the scan parameters and the dropped-finding detail.
+	fmt.Printf("Agent scan: mode=%s fail_on=%s model=%s\n", s.Mode, s.FailOn, s.Model)
 	for _, lr := range res.LensResults {
 		for _, d := range lr.Dropped {
 			fmt.Printf("  dropped [%s] %s %s:%d: %s\n",
