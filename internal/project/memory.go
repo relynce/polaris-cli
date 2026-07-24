@@ -46,7 +46,7 @@ func ReadDigest(targetDir string) ([]DigestEntry, error) {
 		// Split at most 4 parts: Type:Key:Value:Meta
 		parts := strings.SplitN(line, ":", 4)
 		if len(parts) < 3 {
-			// Malformed line — skip.
+			// Malformed line - skip.
 			continue
 		}
 		e := DigestEntry{

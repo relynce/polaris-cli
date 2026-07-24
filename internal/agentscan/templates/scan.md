@@ -1,4 +1,4 @@
-# Reliability review — {{.Lens.Name}} lens
+# Reliability review - {{.Lens.Name}} lens
 
 {{.Lens.Focus}}
 
@@ -18,7 +18,7 @@
 {{- end}}
 {{- if .Deleted}}
 
-## Deleted files (context only — these must never be read)
+## Deleted files (context only - these must never be read)
 {{range .Deleted}}
 - {{.}}
 {{- end}}

@@ -48,7 +48,7 @@ var builtinGeneratedGlobs = []string{
 // FilterGenerated drops generated content from a change set before any
 // prompt is rendered. Resolution order per file (spec: Diff hygiene):
 //
-//  1. .gitattributes `linguist-generated` — queried in one batch
+//  1. .gitattributes `linguist-generated` - queried in one batch
 //     `git check-attr` subprocess. An explicit true/set drops the file;
 //     an explicit false/unset KEEPS it even when a glob below matches
 //     (.gitattributes is the first authority in both directions).
@@ -164,16 +164,16 @@ func matchAnyGlob(globs []string, p string) (string, bool) {
 }
 
 // matchGlob matches a repo-relative forward-slash path against a
-// generated-content glob. Semantics (documented, deliberately simple —
+// generated-content glob. Semantics (documented, deliberately simple -
 // not full doublestar):
 //
-//   - "dir/**"     — the path is inside a dir/ directory at any depth
+//   - "dir/**"     - the path is inside a dir/ directory at any depth
 //     (vendor/**, node_modules/** must catch nested trees like
 //     frontend/node_modules/...).
-//   - "**/pat"     — pat matched against the basename.
-//   - no slash     — matched against the basename (so *.gen.go matches
+//   - "**/pat"     - pat matched against the basename.
+//   - no slash     - matched against the basename (so *.gen.go matches
 //     api/openapi.gen.go).
-//   - otherwise    — path.Match against the full path.
+//   - otherwise    - path.Match against the full path.
 func matchGlob(pattern, p string) bool {
 	switch {
 	case strings.HasSuffix(pattern, "/**"):
@@ -254,7 +254,7 @@ const (
 //     separate lens invocations; ChangeSet still holds the full input
 //     for reference.
 //   - Over the hard limit: FileListMode is true and ChangeSet.Diff is
-//     replaced by a file-list summary — the diff content is NOT sent.
+//     replaced by a file-list summary - the diff content is NOT sent.
 //
 // Notices lists every degrade in human-readable form; callers MUST
 // surface them (spec: oversized diffs must never silently fail open,
@@ -291,7 +291,7 @@ func ApplyBudget(cs ChangeSet, softLimit, hardLimit int) BudgetResult {
 			Notices: []string{fmt.Sprintf(
 				"DEGRADED TO FILE-LIST MODE: the filtered diff is %d lines, over the hard limit of %d. "+
 					"Diff content was NOT sent to any lens; only file names were. "+
-					"This is NOT a full scan of the change — split the change or scan smaller ranges to restore coverage.",
+					"This is NOT a full scan of the change - split the change or scan smaller ranges to restore coverage.",
 				total, hardLimit)},
 		}
 	}
@@ -371,7 +371,7 @@ func chunkBySection(cs ChangeSet, softLimit, total int) BudgetResult {
 // output built on it can read as a full review.
 func fileListSummary(cs ChangeSet, total, hardLimit int) string {
 	var sb strings.Builder
-	sb.WriteString("[FILE-LIST MODE — DIFF CONTENT OMITTED]\n")
+	sb.WriteString("[FILE-LIST MODE - DIFF CONTENT OMITTED]\n")
 	fmt.Fprintf(&sb, "The filtered diff is %d lines, exceeding the hard limit of %d lines.\n", total, hardLimit)
 	sb.WriteString("Only the changed file list follows; the diff itself was not included.\n")
 	sb.WriteString("Findings are limited to what file names imply. This is NOT a full review of the change.\n\n")
@@ -404,7 +404,7 @@ func lineCount(s string) int {
 var ErrSecretsDetected = errors.New("potential secrets detected in change set")
 
 // SecretHit locates one potential secret. The matched value is
-// deliberately NOT retained anywhere — file, line, and pattern kind
+// deliberately NOT retained anywhere - file, line, and pattern kind
 // only.
 type SecretHit struct {
 	Path string
@@ -427,7 +427,7 @@ func (e *SecretsError) Error() string {
 		}
 		fmt.Fprintf(&sb, "%s:%d (%s)", h.Path, h.Line, h.Kind)
 	}
-	sb.WriteString(". Remove or unstage the secret — verify with your secret scanner (e.g. gitleaks) — then rerun.")
+	sb.WriteString(". Remove or unstage the secret - verify with your secret scanner (e.g. gitleaks) - then rerun.")
 	return sb.String()
 }
 
@@ -456,7 +456,7 @@ var hunkHeader = regexp.MustCompile(`^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
 
 // CheckSecrets scans the outgoing diff for secret material. On any hit
 // it returns a *SecretsError (wrapping ErrSecretsDetected) naming each
-// file:line — never the value — and the caller must refuse to invoke
+// file:line - never the value - and the caller must refuse to invoke
 // any agent. Line numbers are new-file lines for added/context lines
 // and old-file lines for removed lines (removed content still leaves
 // the machine in the prompt, so it is checked too).
@@ -506,7 +506,7 @@ func CheckSecrets(cs ChangeSet) error {
 
 // SkipReason reports whether the scan should be skipped because a
 // merge, rebase, or cherry-pick is in progress (spec: Diff hygiene
-// item 5 — these are out of scope in v1). The git dir is resolved via
+// item 5 - these are out of scope in v1). The git dir is resolved via
 // `git rev-parse --git-dir` because in linked worktrees .git is a file
 // and the hook-relevant state lives in the worktree's private git dir.
 // If the git dir cannot be resolved, no skip state is reported; the

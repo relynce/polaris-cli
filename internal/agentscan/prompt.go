@@ -12,9 +12,9 @@ var templateFS embed.FS
 
 // scanTemplate is the shared base template for every lens; per-lens
 // content (Focus, RuleVocab) is injected at render time (spec: Lenses
-// and templates). The strict-scope contract encoded in the template —
+// and templates). The strict-scope contract encoded in the template -
 // diff inlined, Read only the listed changed files in the snapshot, no
-// exploration, minimal turns — is what produced the measured ~60s scan;
+// exploration, minimal turns - is what produced the measured ~60s scan;
 // loosening it is a behavior change, not a wording tweak.
 var scanTemplate = template.Must(template.ParseFS(templateFS, "templates/scan.md"))
 

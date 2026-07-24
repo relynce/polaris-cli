@@ -33,7 +33,7 @@ type localScanArgs struct {
 	ciMode               bool
 	prComment            bool // po-qs96.4: emit sticky-comment markdown
 	noDedupe             bool // po-jlsd6: suppress grouped output, emit flat per-instance only
-	mode                 string // po-f96kz: "" | enforce | eval — eval always exits 0
+	mode                 string // po-f96kz: "" | enforce | eval - eval always exits 0
 	profile              string // po-3vsvk: matcher profile (fast | full | <custom>)
 	timeout              string // po-p3k56: --timeout flag value (Go duration), empty falls through to RVL_SCAN_TIMEOUT / defaultScanTimeout
 	noDigest             bool   // po-ta8wj.1: skip reading/writing digest.compact
@@ -368,7 +368,7 @@ func runLocalScan(cliVersion string, opts localScanArgs) {
 // submitResp is non-nil (i.e., the scan was --submit'd), the budget math
 // reflects the polaris-resolved tolerance and post-submission state. When
 // submitResp is nil (scan ran but didn't submit) the comment renders
-// without budget context — the CI script can still post it as a
+// without budget context - the CI script can still post it as a
 // findings-only summary.
 func emitPRComment(service string, findings []scanner.ScanFinding, cfg *project.ProjectConfig, resp *ScanResponse) {
 	in := PRCommentInput{
@@ -428,7 +428,7 @@ func severityScore(impact string) int {
 // perServiceBreakdownFromFindings aggregates new findings by the
 // per-finding Component the scanner attributed (set by
 // project.MapFindingsToComponents from .revelara.yaml). Returns rows
-// only when more than one distinct component is touched — single-service
+// only when more than one distinct component is touched - single-service
 // PRs render the simple budget summary instead. po-qs96.4 fix.
 func perServiceBreakdownFromFindings(findings []scanner.ScanFinding, tol *EffectiveTolerance) []ServiceBudget {
 	if len(findings) == 0 {
@@ -543,7 +543,7 @@ findingLoop:
 	for _, f := range findings {
 		findingSlug := strings.ToLower(f.Slug)
 		// po-qs96.2 + po-qs96.5: in strict mode, floor matchers cannot
-		// be waived via yaml/comment/label — only emergency override.
+		// be waived via yaml/comment/label - only emergency override.
 		if strict && findingSlug != "" && floorSet[findingSlug] {
 			out = append(out, f)
 			continue

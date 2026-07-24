@@ -42,6 +42,17 @@ func NewClaudeAdapter(cfg AdapterConfig) Adapter {
 
 func (a *claudeAdapter) Name() string { return "claude" }
 
+// CheckAvailability implements the pipeline's AvailabilityChecker: one
+// cheap up-front LookPath so a parallel fan-out of N lenses does not
+// produce N identical ErrAgentUnavailable results (po-66evv.5, additive
+// to the adapter contract).
+func (a *claudeAdapter) CheckAvailability() error {
+	if _, err := exec.LookPath(a.cfg.Binary); err != nil {
+		return fmt.Errorf("%w: %q: %v", ErrAgentUnavailable, a.cfg.Binary, err)
+	}
+	return nil
+}
+
 // claudeEnvelope is the `claude -p --output-format json` output
 // envelope. Only the fields the scan consumes are declared; the
 // envelope carries more (session id, per-model usage, ...).

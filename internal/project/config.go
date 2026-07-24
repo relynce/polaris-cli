@@ -65,6 +65,45 @@ type ScannerConfig struct {
 	// table when the scan submits, so EMs and auditors have a
 	// who/when/scope/reason record.
 	Waivers []WaiverEntry `yaml:"waivers,omitempty"`
+
+	// po-66evv.5: `scanner.agent` configures `rvl scan --agent`, the
+	// change-scoped agent scan. See AgentScanConfig for the trust
+	// boundary on what repo-tracked config may set.
+	Agent *AgentScanConfig `yaml:"agent,omitempty"`
+}
+
+// AgentScanConfig is the .revelara.yaml `scanner.agent` section for the
+// change-scoped agent scan (`rvl scan --agent`).
+//
+// SECURITY / TRUST BOUNDARY (po-66evv.10, agent-scan spec "Security
+// model"): repo-tracked config may set gate and threshold VALUES only.
+// There is deliberately NO agent_cmd, binary, or template-path field
+// here, and none may be added: anything that selects code to execute is
+// honored only from user-level config or an explicit trust grant
+// (direnv model). The agent-binary override is the user-level
+// --agent-binary flag only.
+//
+// Example:
+//
+//	scanner:
+//	  agent:
+//	    fail_on: high          # critical|high|medium|low (default high)
+//	    mode: enforce          # enforce|eval (eval never blocks)
+//	    strict_errors: false   # true = infra errors fail the gate closed
+//	    model: sonnet          # pinned agent model
+//	    timeout_seconds: 180   # per-lens invocation timeout
+//	    budget_warn_usd: 5.0   # warn when cumulative scan cost exceeds this
+//	    generated_globs: ["gen/**"]  # extra generated-content globs
+//	    max_invocations: 12    # chunk x lens fan-out cap
+type AgentScanConfig struct {
+	FailOn         string   `yaml:"fail_on,omitempty"`
+	Mode           string   `yaml:"mode,omitempty"`
+	StrictErrors   bool     `yaml:"strict_errors,omitempty"`
+	Model          string   `yaml:"model,omitempty"`
+	TimeoutSeconds int      `yaml:"timeout_seconds,omitempty"`
+	BudgetWarnUSD  float64  `yaml:"budget_warn_usd,omitempty"`
+	GeneratedGlobs []string `yaml:"generated_globs,omitempty"`
+	MaxInvocations int      `yaml:"max_invocations,omitempty"`
 }
 
 // WaiverEntry is a single in-repo waiver. The matcher slug is required;
@@ -124,7 +163,7 @@ func LoadProjectConfigFrom(targetDir string) *ProjectConfig {
 		cmd := exec.Command("git", "-C", absTarget, "rev-parse", "--show-toplevel")
 		out, err := cmd.Output()
 		if err != nil {
-			// Not a git repo — try using the directory itself
+			// Not a git repo - try using the directory itself
 			gitRoot = absTarget
 		} else {
 			gitRoot = strings.TrimSpace(string(out))

@@ -21,7 +21,7 @@ type Adapter interface {
 	Name() string
 
 	// Invoke sends the prompt to the agent (via stdin or temp file,
-	// never argv — spec: Diff hygiene, prompt transport) and returns
+	// never argv - spec: Diff hygiene, prompt transport) and returns
 	// its raw text output. Errors are classified for the gate policy:
 	// ErrAgentUnavailable and ErrAgentTimeout are infra errors that
 	// fail open by default (spec: Gate policy).

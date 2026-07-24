@@ -203,7 +203,7 @@ func cmdControlList(args []string) {
 			// the user doesn't assume the catalog is empty.
 			fmt.Fprintln(os.Stderr, "No controls match the requested category.")
 			fmt.Fprintln(os.Stderr, "Hint: run `rvl control list` (no filter) to see the catalog,")
-			fmt.Fprintln(os.Stderr, "or check spelling — categories use underscore_case slugs.")
+			fmt.Fprintln(os.Stderr, "or check spelling - categories use underscore_case slugs.")
 		} else {
 			fmt.Println("No controls found.")
 		}

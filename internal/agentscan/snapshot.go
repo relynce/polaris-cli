@@ -9,7 +9,7 @@ import (
 
 // SnapshotIndex materializes the staged (index) content of the given
 // non-deleted files into a fresh temp directory, preserving relative
-// paths. Content comes from the index blob (`git show :<path>`) —
+// paths. Content comes from the index blob (`git show :<path>`) -
 // never the worktree file: with partial staging (git add -p) the two
 // differ, and the gate must see exactly what will be committed.
 // Because git subprocesses inherit the environment (see runGit), a

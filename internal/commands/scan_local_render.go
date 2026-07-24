@@ -26,7 +26,7 @@ func renderLocalSummary(target, service string, findings []scanner.ScanFinding, 
 	md := renderScanReportMarkdown(target, service, findings, stats)
 
 	if !isTTY() {
-		// Piped output — emit raw markdown. Still readable in plain
+		// Piped output - emit raw markdown. Still readable in plain
 		// terminals and easy to grep / archive in CI logs.
 		fmt.Print(md)
 		return
@@ -115,7 +115,7 @@ func renderScanReportMarkdown(target, service string, findings []scanner.ScanFin
 // "what kinds of issues exist and how many", then drill-down detail
 // underneath when they want specific paths.
 //
-// Column order is Category, Finding, Locations — category comes
+// Column order is Category, Finding, Locations - category comes
 // first because grouping by category is how reliability work is
 // usually triaged.
 func renderFindingsTable(findings []scanner.ScanFinding) string {
@@ -139,7 +139,7 @@ func renderFindingsTable(findings []scanner.ScanFinding) string {
 	if !allGroupsAreSingleLocation(groups) {
 		sb.WriteString("**Locations:**\n\n")
 		for _, g := range groups {
-			fmt.Fprintf(&sb, "- `%s` / %s — %d location%s\n",
+			fmt.Fprintf(&sb, "- `%s` / %s - %d location%s\n",
 				g.Category, g.Title, len(g.Locations), pluralS(len(g.Locations)))
 			for _, loc := range g.Locations {
 				fmt.Fprintf(&sb, "    - `%s`\n", loc)
@@ -197,7 +197,7 @@ func groupFindings(findings []scanner.ScanFinding) []findingGroup {
 		g := byKey[k]
 		out = append(out, *g)
 	}
-	// Sort by category, then descending location count, then title —
+	// Sort by category, then descending location count, then title -
 	// puts the loudest groups in each category first, which is what
 	// readers want to triage.
 	sort.SliceStable(out, func(i, j int) bool {

@@ -34,7 +34,7 @@ type ReadinessScorecard struct {
 }
 
 // CmdReport renders a compliance readiness scorecard (the "do these N controls"
-// view). It is deliberately readiness/supporting framing — never certification.
+// view). It is deliberately readiness/supporting framing - never certification.
 func CmdReport(args []string) {
 	if cliutil.WantsHelp(args) {
 		printReportUsage()
@@ -106,7 +106,7 @@ func renderScorecard(sc ReadinessScorecard) {
 	if sc.Set == "full" {
 		setLabel = "Full Mapped Set"
 	}
-	fmt.Printf("%s Readiness — %s\n\n", strings.ToUpper(sc.Framework), setLabel)
+	fmt.Printf("%s Readiness - %s\n\n", strings.ToUpper(sc.Framework), setLabel)
 	fmt.Printf("Readiness: %.1f%%  (%d/%d passing)\n", sc.ReadinessPct, sc.ControlsPassing, sc.ControlsTotal)
 	fmt.Printf("  passing %d   partial %d   failing %d   not assessed %d\n\n",
 		sc.ControlsPassing, sc.ControlsPartial, sc.ControlsFailing, sc.ControlsNotAssessed)
@@ -120,7 +120,7 @@ func renderScorecard(sc ReadinessScorecard) {
 			c.ControlCode, statusBadge(c.Status), truncate(c.Name, 40), strings.Join(c.Criteria, ", "))
 	}
 
-	fmt.Println("\nThis is a SOC 2 readiness / supporting-evidence view — not a certification or")
+	fmt.Println("\nThis is a SOC 2 readiness / supporting-evidence view - not a certification or")
 	fmt.Println("attestation. Run `rvl control show <RC-XXX>` for remediation guidance.")
 }
 
@@ -154,7 +154,7 @@ Usage:
   rvl report [options]
 
 Shows the controls you should implement for a compliance framework and your
-current readiness. Readiness/supporting framing only — never certification.
+current readiness. Readiness/supporting framing only - never certification.
 
 Options:
   --framework=<fw>  Framework key (default soc2)

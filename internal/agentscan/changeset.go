@@ -128,7 +128,7 @@ func kindForStatus(s byte) ChangeKind {
 		return ChangeDeleted
 	default:
 		// M (modified), T (typechange), and anything unexpected: the
-		// file exists on the new side, so treat it as modified — it
+		// file exists on the new side, so treat it as modified - it
 		// gets snapshotted and reviewed, which is the safe default.
 		return ChangeModified
 	}

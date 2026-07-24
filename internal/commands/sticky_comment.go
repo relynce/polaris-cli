@@ -16,7 +16,7 @@ import (
 const StickyCommentMarker = "<!-- rvl-sticky-comment:reliability -->"
 
 // PRCommentInput is the bundle of data the markdown generator consumes
-// to render the sticky comment for a PR. Keep this a value type — the
+// to render the sticky comment for a PR. Keep this a value type - the
 // generator must be a pure function so tests can drive it from fixtures
 // without HTTP.
 //
@@ -62,7 +62,7 @@ func RenderPRComment(in PRCommentInput) string {
 	sb.WriteString(StickyCommentMarker)
 	sb.WriteByte('\n')
 
-	fmt.Fprintf(&sb, "## Revelara Reliability — Risk Delta: %s\n\n", signedInt(in.NetDelta))
+	fmt.Fprintf(&sb, "## Revelara Reliability - Risk Delta: %s\n\n", signedInt(in.NetDelta))
 
 	// Banner: missing .revelara.yaml
 	if !in.HasRevelaraYAML {
@@ -73,7 +73,7 @@ func RenderPRComment(in PRCommentInput) string {
 	// po-qs96.6: calibration banner (takes precedence over budget messaging
 	// because gate enforcement is suspended during the 30-day window).
 	if in.EffectiveTolerance != nil && in.EffectiveTolerance.Calibrating {
-		sb.WriteString("> :wrench: **Calibration mode** — no gate enforcement. Findings are recorded; ")
+		sb.WriteString("> :wrench: **Calibration mode** - no gate enforcement. Findings are recorded; ")
 		sb.WriteString("tolerance will be proposed on day 30 from the measured state at that time. ")
 		sb.WriteString("EM accepts or modifies the proposal in Settings → Reliability.\n\n")
 	} else if in.EffectiveTolerance != nil {
@@ -84,10 +84,10 @@ func RenderPRComment(in PRCommentInput) string {
 			pct = float64(in.MeasuredState) / float64(in.EffectiveTolerance.ToleranceTarget) * 100.0
 		}
 		if over {
-			fmt.Fprintf(&sb, "**Budget:** %d/%d **OVER BUDGET** — waiver required to merge.\n\n",
+			fmt.Fprintf(&sb, "**Budget:** %d/%d **OVER BUDGET** - waiver required to merge.\n\n",
 				in.MeasuredState, in.EffectiveTolerance.ToleranceTarget)
 		} else {
-			fmt.Fprintf(&sb, "**Budget:** %d/%d (%.1f%% used) — within tolerance.\n\n",
+			fmt.Fprintf(&sb, "**Budget:** %d/%d (%.1f%% used) - within tolerance.\n\n",
 				in.MeasuredState, in.EffectiveTolerance.ToleranceTarget, pct)
 		}
 		if in.EffectiveTolerance.StrictEnforcement {

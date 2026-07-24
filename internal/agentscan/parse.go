@@ -20,7 +20,7 @@ type findingsPayload struct {
 // Adapter-agnostic and deliberately fence-tolerant: despite the "JSON
 // only" instruction, the general lens wrapped its output in a ```json
 // fence during the design experiment, so this accepts (a) a bare JSON
-// object, (b) a fenced object, and (c) an object embedded in prose —
+// object, (b) a fenced object, and (c) an object embedded in prose -
 // all via one scan for the first balanced {...} containing a
 // "findings" key.
 func ExtractFindings(raw string) ([]Finding, string, error) {
@@ -101,7 +101,7 @@ var validSeverities = map[string]bool{
 // ValidateFindings enforces the promises the prompt makes to the model
 // (templates/scan.md): rule must be in the lens's closed vocabulary,
 // severity must be one of the schema's four levels (case-normalized),
-// and file must be part of the change set — scope discipline is a gate
+// and file must be part of the change set - scope discipline is a gate
 // guarantee, so a finding pointing outside the change set is dropped,
 // not trusted. Kept findings are stamped with the lens ID; Finding.Lens
 // is orchestrator-owned and any model-supplied value is overwritten.
@@ -149,7 +149,7 @@ func ValidateFindings(l Lens, cs ChangeSet, findings []Finding) (kept []Finding,
 // invoke, and extract failures, wrapped with the lens ID and preserving
 // the adapter's error taxonomy for errors.Is (ErrAgentUnavailable,
 // ErrAgentTimeout). Validation drops are not errors; they land in
-// Dropped. CostUSD is preserved even when a later stage fails — spend
+// Dropped. CostUSD is preserved even when a later stage fails - spend
 // happened regardless.
 func RunLens(ctx context.Context, a Adapter, l Lens, cs ChangeSet, snapshotDir string) (res LensResult) {
 	res.Lens = l
