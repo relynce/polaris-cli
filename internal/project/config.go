@@ -19,52 +19,73 @@ type ProjectConfig struct {
 }
 
 // ScannerConfig is the optional .revelara.yaml `scanner` section consumed
-// by the local reliability scanner. Absent = all defaults.
+// by the change-scoped agent scan (`rvl scan --agent`). Absent = all
+// defaults. See docs/agent-scan-hooks.md.
 //
 // Example:
 //
 //	scanner:
-//	  exclude_matchers: [hardcoded-connection-string]
-//	  exclude_paths:    ["legacy/"]
-//	  confidence_threshold: medium
 //	  base_ref: origin/develop
-//	  include_tests: false
-//	  tolerance:
-//	    target: 200
-//	    headroom_pct: 10
-//	  strict_enforcement: false
+//	  agent:
+//	    mode: enforce
+//	    fail_on: high
+//	  waivers:
+//	    - matcher: missing-timeout   # agent lens rule slug
+//	      paths: ["internal/experimental/**"]
+//	      reason: "spike code"
+//	      expires: "2026-12-31"
 type ScannerConfig struct {
-	ExcludeMatchers     []string         `yaml:"exclude_matchers,omitempty"`
-	ExcludePaths        []string         `yaml:"exclude_paths,omitempty"`
-	ConfidenceThreshold string           `yaml:"confidence_threshold,omitempty"`
-	BaseRef             string           `yaml:"base_ref,omitempty"`
-	IncludeTests        bool             `yaml:"include_tests,omitempty"`
-	Tolerance           *ToleranceConfig `yaml:"tolerance,omitempty"`
-	StrictEnforcement   *bool            `yaml:"strict_enforcement,omitempty"`
+	// BaseRef seeds the --agent --changed-only base-ref resolution chain
+	// (.revelara.yaml step). CLI --base overrides.
+	BaseRef string `yaml:"base_ref,omitempty"`
 
-	// po-f96kz: enforce (default) gates CI on critical/high findings;
-	// eval reports findings but always exits 0. Useful for rolling the
-	// scanner out to a team that wants visibility before flipping the
-	// gate on. CLI --mode overrides this value.
-	Mode string `yaml:"mode,omitempty"`
-
-	// po-3vsvk: named matcher profile to activate by default.
-	// Built-ins: "fast" (regex-impl matchers only) and "full" (all).
-	// Custom names must appear in Profiles below. CLI --profile overrides.
-	Profile string `yaml:"profile,omitempty"`
-
-	// po-3vsvk: user-defined or built-in-override profile slug lists.
-	// Keys are profile names; values are explicit lists of matcher
-	// slugs. A user key matching a built-in name (fast, full) replaces
-	// the built-in's computed list.
-	Profiles map[string][]string `yaml:"profiles,omitempty"`
-
-	// po-qs96.5: time-bounded, reason-bearing waivers for known-acceptable
-	// patterns. Different from ExcludeMatchers (no-questions-asked
-	// suppression). Each waiver gets logged to the polaris waivers_audit
-	// table when the scan submits, so EMs and auditors have a
-	// who/when/scope/reason record.
+	// Waivers are time-bounded, reason-bearing suppressions keyed on the
+	// agent lens RULE SLUG + path glob. Applied locally before the gate.
 	Waivers []WaiverEntry `yaml:"waivers,omitempty"`
+
+	// po-66evv.5: `scanner.agent` configures `rvl scan --agent`, the
+	// change-scoped agent scan. See AgentScanConfig for the trust
+	// boundary on what repo-tracked config may set.
+	Agent *AgentScanConfig `yaml:"agent,omitempty"`
+}
+
+// AgentScanConfig is the .revelara.yaml `scanner.agent` section for the
+// change-scoped agent scan (`rvl scan --agent`).
+//
+// SECURITY / TRUST BOUNDARY (po-66evv.10, agent-scan spec "Security
+// model"): repo-tracked config may set gate and threshold VALUES only.
+// There is deliberately NO agent_cmd, binary, or template-path field
+// here, and none may be added: anything that selects code to execute is
+// honored only from user-level config or an explicit trust grant
+// (direnv model). The agent-binary override is the user-level
+// --agent-binary flag only.
+//
+// Example:
+//
+//	scanner:
+//	  agent:
+//	    fail_on: high          # critical|high|medium|low (default high)
+//	    mode: enforce          # enforce|eval (eval never blocks)
+//	    strict_errors: false   # true = infra errors fail the gate closed
+//	    model: sonnet          # pinned agent model
+//	    timeout_seconds: 180   # per-lens invocation timeout
+//	    budget_warn_usd: 5.0   # warn when cumulative scan cost exceeds this
+//	    generated_globs: ["gen/**"]  # extra generated-content globs
+//	    max_invocations: 12    # chunk x lens fan-out cap
+type AgentScanConfig struct {
+	// Preset names a built-in adapter (claude, custom). A NAME is safe
+	// to accept from repo config: it selects built-in code, it cannot
+	// introduce code. A custom COMMAND string is never a repo field
+	// (po-66evv.10 trust boundary); it comes from RVL_AGENT_CMD only.
+	Preset         string   `yaml:"preset,omitempty"`
+	FailOn         string   `yaml:"fail_on,omitempty"`
+	Mode           string   `yaml:"mode,omitempty"`
+	StrictErrors   bool     `yaml:"strict_errors,omitempty"`
+	Model          string   `yaml:"model,omitempty"`
+	TimeoutSeconds int      `yaml:"timeout_seconds,omitempty"`
+	BudgetWarnUSD  float64  `yaml:"budget_warn_usd,omitempty"`
+	GeneratedGlobs []string `yaml:"generated_globs,omitempty"`
+	MaxInvocations int      `yaml:"max_invocations,omitempty"`
 }
 
 // WaiverEntry is a single in-repo waiver. The matcher slug is required;
@@ -76,16 +97,6 @@ type WaiverEntry struct {
 	Paths   []string `yaml:"paths,omitempty"`
 	Expires string   `yaml:"expires,omitempty"` // YYYY-MM-DD
 	Reason  string   `yaml:"reason"`
-}
-
-// ToleranceConfig is the per-service tolerance override that flows from
-// .revelara.yaml to the Polaris CI gate via the scan submission. Each
-// field is a pointer so unset fields fall through to org-level defaults
-// (most-specific wins). Reference: docs/designs/local-scanner-developer-workflow.md
-// in the polaris repo.
-type ToleranceConfig struct {
-	Target      *int `yaml:"target,omitempty"`
-	HeadroomPct *int `yaml:"headroom_pct,omitempty"`
 }
 
 // CriticalityScore maps the human-friendly criticality label to a float64 (0.0-1.0)
@@ -124,7 +135,7 @@ func LoadProjectConfigFrom(targetDir string) *ProjectConfig {
 		cmd := exec.Command("git", "-C", absTarget, "rev-parse", "--show-toplevel")
 		out, err := cmd.Output()
 		if err != nil {
-			// Not a git repo — try using the directory itself
+			// Not a git repo - try using the directory itself
 			gitRoot = absTarget
 		} else {
 			gitRoot = strings.TrimSpace(string(out))

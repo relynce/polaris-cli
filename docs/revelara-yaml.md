@@ -14,13 +14,12 @@ The file spans two maturity tiers. Know which one you are configuring:
 | Tier | Fields | Consumed by |
 |------|--------|-------------|
 | **Stable** | `project`, `criticality`, `components` (top level) | `rvl scan`, `rvl review`, `rvl init`, and the `/rvl:*` skills |
-| **Experimental (alpha)** | the entire `scanner:` section | `rvl scan --local` only |
+| **Beta** | the `scanner:` section (`scanner.base_ref`, `scanner.agent`, `scanner.waivers`) | `rvl scan --agent` only |
 
 The top-level identity fields are safe to rely on. The `scanner:` section
-configures the **local scanner** (`rvl scan --local`), which is an
-alpha-level feature: field names, defaults, and behavior may change
-without notice between releases. See
-[Experimental parameters](#experimental-parameters-alpha) below.
+configures the **change-scoped agent scan** (`rvl scan --agent`); see
+[Agent scan parameters](#agent-scan-parameters) below and the
+[agent scan hooks guide](./agent-scan-hooks.md).
 
 ## Location and discovery
 
@@ -118,243 +117,112 @@ config value wins.
 
 ---
 
-# Experimental parameters (alpha)
+# Agent scan parameters
 
-> **Alpha.** Everything under `scanner:` configures the local scanner
-> (`rvl scan --local`), an alpha-level feature that is **not production
-> ready**. Field names, defaults, and behavior may change without notice
-> between releases. Expect false positives and gaps; do not gate
-> production CI on it yet.
+> The `scanner:` section configures `rvl scan --agent`, the change-scoped
+> agentic reliability gate. A CLI flag overrides the matching config
+> value; config overrides the built-in default. For installing the scan
+> as a pre-commit / pre-push hook, the enforce vs eval modes, and CI
+> usage, see the [agent scan hooks guide](./agent-scan-hooks.md).
 
-The `scanner:` section is optional and is read only by `rvl scan
---local`. Non-local scans ignore it entirely.
+The `scanner:` section is optional and is read only by `rvl scan --agent`.
+Other scan modes ignore it.
 
 ```yaml
 scanner:
-  # Suppress specific matchers, no questions asked. Slugs listed here
-  # never fire. Echoed to Revelara on --submit so the Phase 2 feedback
-  # loop can stop regenerating noisy org matchers.
-  exclude_matchers:
-    - no-error-wrapping
-    - missing-circuit-breaker
-
-  # Skip whole directory trees. Prefix match against the file path.
-  exclude_paths:
-    - legacy/
-    - generated/
-
-  # Drop matchers whose confidence is below this level.
-  # Valid: low | medium | high. Default: unset (no confidence filter).
-  confidence_threshold: medium
-
-  # Default base ref for --changed-only diffs. Lowest-priority source
+  # Default base ref for `--changed-only` diffs. Lowest-priority source
   # in the base-ref resolution chain (see Precedence below).
   base_ref: origin/develop
 
-  # Run matchers against test files. By default only matchers that opt
-  # in via Matcher.AppliesToTests run on tests. Default: false.
-  include_tests: false
+  # Change-scoped agent scan settings.
+  agent:
+    preset: claude          # adapter preset: claude (default) | custom
+    mode: enforce           # enforce (default) | eval (eval never blocks)
+    fail_on: high           # critical | high | medium | low (min blocking severity)
+    strict_errors: false    # true = agent/timeout errors fail the gate closed
+    model: sonnet           # pinned agent model
+    timeout_seconds: 180    # per-lens invocation timeout
+    budget_warn_usd: 5.0    # warn when cumulative scan cost exceeds this
+    generated_globs:        # extra generated-content globs to exclude
+      - "gen/**"
+    max_invocations: 12     # cap on chunk x lens fan-out
 
-  # CI gate behavior. enforce = critical/high findings exit non-zero.
-  # eval = report findings but always exit 0. Valid: enforce | eval.
-  # Default: enforce. --mode overrides this.
-  mode: enforce
-
-  # Named matcher profile to run by default.
-  # Built-ins: fast (regex-impl matchers only, cheap, every-commit) and
-  # full (all matchers, PR/pre-merge). Custom names must appear under
-  # `profiles`. Default: unset (= full / no filter). --profile overrides.
-  profile: fast
-
-  # User-defined profiles, or overrides of a built-in name. Keys are
-  # profile names; values are explicit matcher-slug allowlists. A key
-  # named "fast" or "full" replaces that built-in's computed list.
-  profiles:
-    pr-critical:
-      - hardcoded-connection-string
-      - missing-timeout
-      - swallowed-error
-
-  # Per-service tolerance override for the Polaris CI budget gate.
-  # Each field is optional; unset fields fall through to org defaults
-  # (most-specific wins). Only sent to Polaris on --submit.
-  tolerance:
-    target: 200        # allowed finding budget for this service
-    headroom_pct: 10   # % headroom before the gate trips
-
-  # When true, floor matchers (a mandatory baseline set) cannot be
-  # waived by any yaml/comment/label waiver; only an emergency override
-  # clears them. Sent to Polaris on --submit. Default: unset (false).
-  strict_enforcement: false
-
-  # Time-bounded, reason-bearing waivers. Unlike exclude_matchers (silent
-  # suppression), each active waiver that matches a finding is logged to
-  # Polaris's waivers_audit table on --submit for accountability.
+  # Time-bounded, reason-bearing waivers. A waived finding is still
+  # reported but never gates the commit/push.
   waivers:
-    - matcher: missing-timeout          # required: matcher slug to waive
+    - matcher: missing-timeout          # required: agent lens RULE SLUG to waive
       paths:                            # optional: glob scope (path.Match)
         - "internal/legacy/**/*.go"
       expires: "2026-12-31"             # optional YYYY-MM-DD; empty = open-ended
       reason: "legacy client scheduled for removal in Q4"  # required
 ```
 
-## `scanner.exclude_matchers`
-- **Type:** list of strings (matcher slugs)
-- **Default:** empty
-
-Hard suppression: listed matchers never fire. Suppressed slugs are
-echoed to Revelara on `--submit` (`ScanMetadata.ExcludedMatchers`) so the
-Phase 2 feedback loop can flag noisy org-generated matchers. Use this for
-matchers you never want; use `waivers` for time-bounded, reasoned
-exceptions you want on the audit record.
-
-## `scanner.exclude_paths`
-- **Type:** list of strings (path prefixes)
-- **Default:** empty
-
-Skip whole directory trees. Matched as a path prefix against each file.
-
-## `scanner.confidence_threshold`
-- **Type:** string enum
-- **Valid values:** `low`, `medium`, `high`
-- **Default:** unset (no confidence filter)
-
-Drops any matcher whose confidence rank is below the threshold
-(`low` < `medium` < `high`). Comparison is case-insensitive.
-
 ## `scanner.base_ref`
 - **Type:** string (git ref)
 - **Default:** unset
 
-Default base ref for `--changed-only` scans. This is the **lowest**
-priority source in the base-ref resolution chain (see
-[Precedence](#precedence-chains-scanner) below).
+Default base ref for `rvl scan --agent --changed-only`. This is the
+**lowest** priority source in the base-ref resolution chain (see
+[Precedence: base ref](#precedence-base-ref) below).
 
-## `scanner.include_tests`
-- **Type:** bool
-- **Default:** `false`
+## `scanner.agent`
+- **Type:** object
+- **Default:** unset (all agent defaults apply)
 
-When `true`, matchers run against test files too. By default, only
-matchers that opt in (`Matcher.AppliesToTests`) run on tests. Setting
-`true` here is a global override; there is no way to set it back to false
-per-matcher from config. `--include-tests` on the CLI can also enable it.
+Configures the change-scoped agent scan. Every key is optional; a CLI
+flag overrides the matching config value, which overrides the built-in
+default.
 
-## `scanner.mode`
-- **Type:** string enum
-- **Valid values:** `enforce`, `eval`
-- **Default:** `enforce`
-- **CLI override:** `--mode` (CLI > config > default)
+| Key | Type | Default | CLI override | Meaning |
+|-----|------|---------|--------------|---------|
+| `preset` | string | `claude` | `--agent-preset` | Adapter preset: `claude` or `custom`. |
+| `mode` | enum | `enforce` | `--mode` | `enforce` blocks on findings at/above `fail_on`; `eval` reports but always exits 0. |
+| `fail_on` | enum | `high` | `--fail-on` | Minimum blocking severity: `critical`, `high`, `medium`, `low`. |
+| `strict_errors` | bool | `false` | — | When `true`, agent/timeout infra errors fail the gate **closed** instead of the default fail-open. |
+| `model` | string | `sonnet` | `--model` | Pinned agent model. |
+| `timeout_seconds` | int | `180` | `--timeout-seconds` | Per-lens invocation timeout. Must be positive. |
+| `budget_warn_usd` | float | unset | — | Warn when cumulative agent cost for the scan exceeds this. |
+| `generated_globs` | list of strings | empty | — | Extra generated-content globs excluded from the change set. |
+| `max_invocations` | int | built-in cap | — | Cap on the chunk x lens fan-out. Must be positive. |
 
-Controls the CI gate. `enforce` exits non-zero on critical/high findings.
-`eval` reports findings but always exits 0, so you can roll the scanner
-out to a team for visibility before turning the gate on. Validated
-case-insensitively; an invalid value errors and names the source
-(`scanner.mode` vs `--mode`) so you know where to fix it.
-
-## `scanner.profile`
-- **Type:** string
-- **Valid built-ins:** `fast`, `full`
-- **Default:** unset (equivalent to `full` / no filter)
-- **CLI override:** `--profile` (CLI > config > implicit full)
-
-Selects which matcher set runs.
-
-| Profile | Meaning |
-|---------|---------|
-| `fast` | Regex-impl matchers only. Cheap; intended for every commit. |
-| `full` | All matchers, no filter. Intended for PR open / pre-merge. |
-
-A custom name must be defined under `profiles` or the scan errors with
-the list of available names. When both `profile` and `--matchers` are
-set, the profile's allowlist is **intersected** with `--matchers`;
-otherwise the profile allowlist becomes the matcher set.
-
-## `scanner.profiles`
-- **Type:** map of `string -> list of strings` (name -> matcher slugs)
-- **Default:** empty
-
-User-defined profiles. A key equal to a built-in name (`fast`, `full`)
-**replaces** that built-in's computed slug list. Any other key defines a
-new profile selectable via `profile:` or `--profile`.
-
-## `scanner.tolerance`
-- **Type:** object `{ target, headroom_pct }`
-- **Default:** unset (org defaults apply)
-- **Sent to Polaris:** on `--submit` only
-
-Per-service override of the Polaris CI budget gate. Each field is
-independently optional; an unset field falls through to the org-level
-default (most-specific wins). If no tolerance field and no
-`strict_enforcement` is set, nothing is sent and the resolver uses org
-defaults.
-
-| Field | Type | Meaning |
-|-------|------|---------|
-| `target` | int | Allowed finding budget for this service |
-| `headroom_pct` | int | Percent headroom before the gate trips |
-
-## `scanner.strict_enforcement`
-- **Type:** bool (nullable; unset is distinct from false)
-- **Default:** unset
-- **Sent to Polaris:** on `--submit`
-
-When `true`, **floor matchers** (a mandatory baseline set) cannot be
-suppressed by any waiver (yaml, PR comment, or label); they require an
-emergency override to clear. Non-floor findings can still be waived.
+**Trust boundary.** There is deliberately no agent command, binary, or
+template-path field under `scanner.agent`: anything that selects code to
+execute is honored only from user-level sources (the `--agent-binary`
+flag, or `RVL_AGENT_CMD` for the `custom` preset), never from
+repo-tracked config.
 
 ## `scanner.waivers`
 - **Type:** list of waiver entries
 - **Default:** empty
 
-Time-bounded, reasoned exceptions. Unlike `exclude_matchers`, each active
-waiver that actually matches a finding is recorded to Polaris's
-`waivers_audit` table on `--submit` (who / when / scope / reason), so EMs
-and auditors have a trail.
+Time-bounded, reasoned exceptions for the agent scan. A waived finding is
+still reported but never gates the commit/push.
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `matcher` | string | yes | Matcher slug to waive |
+| `matcher` | string | yes | The agent lens **rule slug** to waive (e.g. `missing-timeout`, `silent-error-swallow`). |
 | `paths` | list of strings | no | Glob scope. Empty = waiver applies repo-wide. |
 | `expires` | string `YYYY-MM-DD` | no | Date after which the waiver is inactive. Empty = open-ended. |
 | `reason` | string | yes | Audit justification |
 
 Semantics:
-- A waiver drops a finding only when the finding's **matcher slug**
-  equals `matcher` (case-insensitive) **and** (no `paths`, or the
-  finding's first evidence path matches a `paths` glob).
+- A waiver drops a finding only when the finding's **rule slug** equals
+  `matcher` (case-insensitive) **and** (no `paths`, or the finding's
+  first evidence path matches a `paths` glob).
 - Path globs use `path.Match` (forward-slash, OS-independent). A `**/`
-  prefix also matches by basename, so `**/*.go` matches
-  `pkg/foo/bar.go`.
+  prefix also matches by basename, so `**/*.go` matches `pkg/foo/bar.go`.
 - Waivers whose `expires` date is in the past are inactive.
-- Under `strict_enforcement: true`, floor matchers are never waived
-  regardless of any matching waiver.
 
-## Precedence chains (scanner)
+## Precedence: base ref
 
-All of these apply only to `rvl scan --local`.
+For `rvl scan --agent --changed-only`, the base ref resolves highest to
+lowest:
 
-### Scan mode
-`--mode` flag > `scanner.mode` > default (`enforce`).
-
-### Matcher profile
-`--profile` flag > `scanner.profile` > implicit `full` (no filter). If
-`--matchers` is also given, the resolved profile intersects with it.
-
-### Base ref (for `--changed-only`)
-Highest to lowest:
 1. `--base` flag
 2. `RVL_BASE_REF` env var
 3. `GITHUB_BASE_REF` env var (GitHub PR events)
 4. `CI_MERGE_REQUEST_TARGET_BRANCH_NAME` env var (GitLab MRs)
 5. `scanner.base_ref` in `.revelara.yaml`
-
-If none resolve to a reachable ref, `--changed-only` exits 2 with a
-diagnostic unless `--scan-all-on-missing-base` is set (then it falls back
-to a full scan).
-
-### Tolerance / strict_enforcement
-`.revelara.yaml` values are sent to Polaris, which merges them over
-org-level defaults (most-specific wins). Unset fields fall through.
 
 ---
 
@@ -362,7 +230,6 @@ org-level defaults (most-specific wins). Unset fields fall through.
 
 - [Feature maturity](./maturity.md) - which fields and features are
   stable, beta, or alpha
-- [Local scanner guide](./local-scanner.md) - running the alpha `--local`
-  scanner, CI integration, report formats
-- [Scanner matcher catalog](./scanner-matchers.md) - the matchers the
-  `scanner:` fields target, and how to add one
+- [Agent scan hooks](./agent-scan-hooks.md) - running `rvl scan --agent`,
+  installing it as a pre-commit / pre-push hook, modes, waivers, and CI
+  usage

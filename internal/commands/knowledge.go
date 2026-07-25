@@ -17,7 +17,7 @@ import (
 
 // KnowledgeSearchResult represents a search result from the knowledge API.
 //
-// The score sub-field is `similarity`, not `score` — the server
+// The score sub-field is `similarity`, not `score` - the server
 // (internal/knowledge.SemanticSearchResult) emits cosine similarity in
 // [0,1] under the `similarity` JSON key. Earlier revisions of this struct
 // read `score`, which silently rendered as 0 because the field did not
@@ -720,7 +720,7 @@ func cmdKnowledgeProcedures(args []string) {
 	// no procedure matched the control, which silently surfaced
 	// completely unrelated procedures as if they were remediations for
 	// the requested control. Now zero matches means zero results, full
-	// stop — the caller sees the truth.
+	// stop - the caller sees the truth.
 	if control != "" {
 		var filtered []KnowledgeProcedure
 		for _, p := range procsResp.Procedures {

@@ -27,14 +27,13 @@ which are close, and which are still experimental.
 | `rvl config` | Production | View and edit CLI configuration. |
 | `rvl scan` (default review mode) | Production | Agent-driven scan with interactive review of inferred findings. |
 | `rvl review` | Production | Reliability-focused review of current changes. |
-| `rvl scan --local` | **Alpha** | Local pattern matcher. See [feature notes](#features-and-flags). |
+| `rvl scan --agent` | **Beta** | Change-scoped agentic reliability gate. See [feature notes](#features-and-flags). |
 
 ## Features and flags
 
 | Feature / flag | Tier | Notes |
 |----------------|------|-------|
-| `rvl scan --local` and its `.revelara.yaml` `scanner:` section | **Alpha** | Built-in matcher set, no LLM. Expect false positives and gaps. The entire `scanner:` config block feeds only this path. See the [`.revelara.yaml` reference](./revelara-yaml.md#experimental-parameters-alpha). |
-| Org-generated matchers (`scanner_matcher_gen` flag) | **Alpha** | Matchers generated from your knowledge graph, flag-gated and pre-GA even within the local scanner. |
+| `rvl scan --agent` and its `.revelara.yaml` `scanner:` section | **Beta** | Change-scoped review by headless coding-agent lenses, gated on findings. Runs as a pre-commit / pre-push hook. The `scanner:` config block feeds only this path. See the [agent scan hooks guide](./agent-scan-hooks.md) and the [`.revelara.yaml` reference](./revelara-yaml.md#agent-scan-parameters). |
 | `rvl scan --auto-infer` | **Alpha** | Skips the interactive review step and accepts inferred findings unattended. |
 | AI coding agent **subagent definitions** (`/rvl:*` expert agents) | **Beta** | The subagent definitions are well tested. Their host-side execution is not fully verified across every agent (see note below). |
 
@@ -54,7 +53,8 @@ run the same definitions under their normal confirmation model.
 
 - **Production**: `project`, `criticality`, `components` (top-level
   identity fields, used by `rvl scan`, `rvl review`, and the skills).
-- **Alpha**: the entire `scanner:` section (local scanner only).
+- **Beta**: the `scanner:` section (`scanner.base_ref`, `scanner.agent`,
+  `scanner.waivers`), consumed by `rvl scan --agent`.
 
 Full field-by-field detail is in the
 [`.revelara.yaml` configuration reference](./revelara-yaml.md).

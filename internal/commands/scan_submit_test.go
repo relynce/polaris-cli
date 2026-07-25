@@ -36,7 +36,7 @@ func TestDeriveIdempotencyKeyStable(t *testing.T) {
 	}
 
 	// Setting a different value on one request must not change its
-	// derived key — the function clears the field before hashing.
+	// derived key - the function clears the field before hashing.
 	a.IdempotencyKey = "pre-set"
 	if got := deriveIdempotencyKey(a); got != keyA {
 		t.Fatalf("expected derived key to ignore pre-set IdempotencyKey; got %q want %q", got, keyA)
@@ -51,7 +51,7 @@ func TestDeriveIdempotencyKeyStable(t *testing.T) {
 
 // TestResolveScanTimeoutPrecedence covers the resolution order for
 // po-p3k56: flag wins, then env, then the 60s default. Invalid values
-// are non-fatal — the scan continues with the default.
+// are non-fatal - the scan continues with the default.
 func TestResolveScanTimeoutPrecedence(t *testing.T) {
 	t.Setenv("RVL_SCAN_TIMEOUT", "")
 

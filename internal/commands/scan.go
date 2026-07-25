@@ -36,27 +36,27 @@ const (
 
 // ScanRequest represents the payload sent to the scan endpoint
 type ScanRequest struct {
-	Service      string        `json:"service"`
-	ScanType     ScanType      `json:"scan_type"`
-	ScanMode     string        `json:"scan_mode,omitempty"`
-	Findings     []interface{} `json:"findings"`
-	Metadata     ScanMetadata  `json:"metadata,omitempty"`
+	Service  string        `json:"service"`
+	ScanType ScanType      `json:"scan_type"`
+	ScanMode string        `json:"scan_mode,omitempty"`
+	Findings []interface{} `json:"findings"`
+	Metadata ScanMetadata  `json:"metadata,omitempty"`
 
 	// Control structure data (optional, populated by scan skill Step 1.2)
 	RepoURL          string                    `json:"repo_url,omitempty"`
 	ControlStructure *ScanControlStructureData `json:"control_structure,omitempty"`
 
 	// Service catalog data (optional, populated by detect-risks scans)
-	Stack        *ScanStackInfo   `json:"stack,omitempty"`
-	Components   []ScanComponent  `json:"components,omitempty"`
-	Dependencies []ScanDependency `json:"dependencies,omitempty"`
+	Stack               *ScanStackInfo   `json:"stack,omitempty"`
+	Components          []ScanComponent  `json:"components,omitempty"`
+	Dependencies        []ScanDependency `json:"dependencies,omitempty"`
 	CatalogMeta         *ScanCatalogMeta `json:"catalog_meta,omitempty"`
 	BusinessCriticality *float64         `json:"business_criticality,omitempty"`
 
 	// po-qs96.2: per-service tolerance override carried from .revelara.yaml
 	// `scanner.tolerance` and `scanner.strict_enforcement` to the Polaris CI
 	// gate. Polaris merges this over org-level defaults via ResolveTolerance
-	// (most-specific wins) — see docs/designs/local-scanner-developer-workflow.md
+	// (most-specific wins) - see docs/designs/local-scanner-developer-workflow.md
 	// in the polaris repo.
 	ServiceTolerance *ServiceToleranceConfig `json:"service_tolerance,omitempty"`
 
@@ -160,7 +160,7 @@ type ScanResponse struct {
 	Service          string                      `json:"service"`
 	Summary          ScanSummary                 `json:"summary"`
 	Findings         []ScanResult                `json:"findings"`
-	ControlStructure *ScanControlStructureResult  `json:"control_structure,omitempty"`
+	ControlStructure *ScanControlStructureResult `json:"control_structure,omitempty"`
 	Warnings         []string                    `json:"warnings,omitempty"`
 	Timestamp        string                      `json:"timestamp"`
 
@@ -210,9 +210,9 @@ type ScanSummary struct {
 	Unchanged        int `json:"unchanged"`
 	ResolvedThisScan int `json:"resolved_this_scan,omitempty"` // po-qs96.4 fix: count of risks marked stale because the scan didn't surface them
 	Critical         int `json:"critical"`
-	High      int `json:"high"`
-	Medium    int `json:"medium"`
-	Low       int `json:"low"`
+	High             int `json:"high"`
+	Medium           int `json:"medium"`
+	Low              int `json:"low"`
 }
 
 // ScanResult represents a single risk finding from the scan
@@ -250,37 +250,41 @@ Common Flags:
   --timeout <dur>        HTTP submission timeout (e.g. 90s, 2m; default 60s)
   --cleanup-on-success   Remove --scan-dir contents after a successful submit
 
-Local Scanner (--local): runs the built-in pattern matchers against a
-codebase without an LLM. Supports CI gating, JSON output, and
-submission to Revelara in one step.
+Agent Scan (--agent): change-scoped reliability review by headless
+coding-agent lenses (requires the claude CLI). Scans only the change
+set, runs lenses in parallel against a staged snapshot, and gates on
+the findings. Configure via .revelara.yaml scanner.agent. See
+docs/agent-scan-hooks.md for installing it as a git hook.
 
-  rvl scan --local --target <path>                Run local scan, print summary
-  rvl scan --local --target <path> --format json  Emit ScanRequest JSON on stdout
-  rvl scan --local --target <path> --service <name> --submit
-                                                  Run local scan AND post to Revelara
-  rvl scan --local --list-matchers                List registered matchers and exit
-  rvl scan --local --target <path> --changed-only Scan only files changed vs. base ref
-  rvl scan --local --target <path> --matchers a,b,c  Run only the listed matcher slugs
+  rvl scan --agent --staged                       Scan the staged change set (pre-commit)
+  rvl scan --agent --changed-only [--base <ref>]  Scan base...HEAD (CI/manual)
+  rvl scan --agent --pre-push                     Pre-push hook entrypoint (reads refs from stdin)
 
-  Local Scanner Flags:
-    --format <fmt>                human (default), json, or markdown
-    --source <s>                  With --list-matchers: curated|org-generated
-    --base <ref>                  Base ref for --changed-only
-    --scan-all-on-missing-base    Fall back to full scan if no base ref reachable
-    --mode <enforce|eval>         Scan mode
-    --profile <name>              Matcher profile
-    --pr-comment                  Emit PR sticky-comment markdown
-    --no-dedupe                   Skip cross-agent finding deduplication
-    --no-digest                   Skip digest.compact read/write
+  Agent Scan Flags:
+    --staged                  Scan the staged (index) change set
+    --changed-only [--base]   Scan base...HEAD (committed changes)
+    --pre-push                Hook entrypoint: read pushed-ref lines from stdin
+    --mode <enforce|eval>     Gate mode (default enforce; eval never blocks)
+    --fail-on <sev>           Blocking threshold: critical|high|medium|low (default high)
+    --model <name>            Pin the agent model (default sonnet)
+    --agent-binary <path>     Agent executable override (flag-only; never read from repo config)
+    --agent-preset <name>     Adapter preset: claude (default) | custom (RVL_AGENT_CMD)
+    --timeout-seconds <n>     Per-lens invocation timeout (default 180)
+    --submit                  Also POST findings to the risk register
+    --format <human|json>     Output format
 
-  Exit codes for --local:
-    0  No findings, or only low/medium findings
-    1  At least one critical or high finding (CI gate)
-    2  Scanner error (bad config, no base ref, unreadable files)
+  Exit codes for --agent:
+    0    Pass, eval mode, skip, or infra fail-open
+    1    Blocked: finding >= fail-on in enforce mode, strict_errors
+         infra failure, or secrets detected in enforce mode
+    2    Config/usage error
+    130  Interrupted
+
+  Force through a blocked gate: RVL_FORCE=1, or 'rvl scan force-next'.
 
 Examples:
   echo '{"findings":[...]}' | rvl scan --service checkout-api --stdin
-  rvl scan --local --target . --format json
+  rvl scan --agent --staged --format human
   rvl scan --service checkout-api --scan-dir .revelara/scan-parts --cleanup-on-success`)
 }
 
@@ -290,6 +294,14 @@ func CmdScan(args []string, version string) {
 	// network calls, before any flag parsing.
 	if cliutil.WantsHelp(args) {
 		printScanUsage()
+		return
+	}
+
+	// po-66evv.6: `rvl scan force-next` is a positional subcommand that
+	// arms the one-shot force-through marker for the next agent gate run.
+	// Intercepted before flag parsing so it is not mistaken for a service.
+	if len(args) >= 1 && args[0] == "force-next" {
+		runForceNext(args[1:])
 		return
 	}
 
@@ -304,23 +316,24 @@ func CmdScan(args []string, version string) {
 	var autoInfer bool
 	var ciMode bool
 
-	// Local-scanner flags (po-fayz epic).
-	var localMode bool
 	var format string
 	var submit bool
-	var listMatchers bool
-	var matchersSourceFilter string
-	var matchersFlag string
 	var changedOnly bool
 	var baseRef string
-	var scanAllOnMissingBase bool
-	var prComment bool // po-qs96.4
-	var noDedupe bool  // po-jlsd6
-	var scanModeFlag string // po-f96kz
-	var profileFlag string  // po-3vsvk
+	var scanModeFlag string   // po-f96kz: agent --mode
 	var cleanupOnSuccess bool // po-gg5dg: remove --scan-dir after a 2xx submit
 	var timeoutFlag string    // po-p3k56: optional override for scan submission timeout
-	var noDigest bool         // po-ta8wj.1: skip digest.compact read/write
+
+	// Agent-scan flags (po-66evv.5). --agent selects the change-scoped
+	// agent scan; the rest are agent-mode-only.
+	var agentMode bool
+	var stagedFlag bool
+	var prePushFlag bool
+	var failOnFlag string
+	var modelFlag string
+	var agentBinaryFlag string
+	var agentPresetFlag string
+	var timeoutSecondsFlag string
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -369,8 +382,47 @@ func CmdScan(args []string, version string) {
 			autoInfer = true
 		case "--ci":
 			ciMode = true
-		case "--local":
-			localMode = true
+		case "--agent":
+			agentMode = true
+		case "--pre-push":
+			prePushFlag = true
+		case "--staged":
+			stagedFlag = true
+		case "--fail-on":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --fail-on requires a value (critical|high|medium|low)")
+				os.Exit(cliutil.ExitUsage)
+			}
+			i++
+			failOnFlag = args[i]
+		case "--model":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --model requires a value")
+				os.Exit(cliutil.ExitUsage)
+			}
+			i++
+			modelFlag = args[i]
+		case "--agent-binary":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --agent-binary requires a value")
+				os.Exit(cliutil.ExitUsage)
+			}
+			i++
+			agentBinaryFlag = args[i]
+		case "--agent-preset":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --agent-preset requires a value (claude|custom)")
+				os.Exit(cliutil.ExitUsage)
+			}
+			i++
+			agentPresetFlag = args[i]
+		case "--timeout-seconds":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --timeout-seconds requires a value")
+				os.Exit(cliutil.ExitUsage)
+			}
+			i++
+			timeoutSecondsFlag = args[i]
 		case "--format":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --format requires a value")
@@ -380,22 +432,6 @@ func CmdScan(args []string, version string) {
 			format = args[i]
 		case "--submit":
 			submit = true
-		case "--list-matchers":
-			listMatchers = true
-		case "--source":
-			if i+1 >= len(args) {
-				fmt.Fprintln(os.Stderr, "Error: --source requires a value")
-				os.Exit(cliutil.ExitUsage)
-			}
-			i++
-			matchersSourceFilter = args[i]
-		case "--matchers":
-			if i+1 >= len(args) {
-				fmt.Fprintln(os.Stderr, "Error: --matchers requires a value")
-				os.Exit(cliutil.ExitUsage)
-			}
-			i++
-			matchersFlag = args[i]
 		case "--changed-only":
 			changedOnly = true
 		case "--base":
@@ -405,12 +441,6 @@ func CmdScan(args []string, version string) {
 			}
 			i++
 			baseRef = args[i]
-		case "--scan-all-on-missing-base":
-			scanAllOnMissingBase = true
-		case "--pr-comment":
-			prComment = true
-		case "--no-dedupe":
-			noDedupe = true
 		case "--mode":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --mode requires a value (enforce|eval)")
@@ -418,17 +448,8 @@ func CmdScan(args []string, version string) {
 			}
 			i++
 			scanModeFlag = args[i]
-		case "--profile":
-			if i+1 >= len(args) {
-				fmt.Fprintln(os.Stderr, "Error: --profile requires a value")
-				os.Exit(cliutil.ExitUsage)
-			}
-			i++
-			profileFlag = args[i]
 		case "--cleanup-on-success":
 			cleanupOnSuccess = true
-		case "--no-digest":
-			noDigest = true
 		case "--timeout":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --timeout requires a value (e.g. 90s, 2m)")
@@ -443,16 +464,20 @@ func CmdScan(args []string, version string) {
 				scanDir = strings.TrimPrefix(args[i], "--scan-dir=")
 			} else if strings.HasPrefix(args[i], "--format=") {
 				format = strings.TrimPrefix(args[i], "--format=")
-			} else if strings.HasPrefix(args[i], "--matchers=") {
-				matchersFlag = strings.TrimPrefix(args[i], "--matchers=")
 			} else if strings.HasPrefix(args[i], "--base=") {
 				baseRef = strings.TrimPrefix(args[i], "--base=")
 			} else if strings.HasPrefix(args[i], "--mode=") {
 				scanModeFlag = strings.TrimPrefix(args[i], "--mode=")
-			} else if strings.HasPrefix(args[i], "--profile=") {
-				profileFlag = strings.TrimPrefix(args[i], "--profile=")
 			} else if strings.HasPrefix(args[i], "--timeout=") {
 				timeoutFlag = strings.TrimPrefix(args[i], "--timeout=")
+			} else if strings.HasPrefix(args[i], "--fail-on=") {
+				failOnFlag = strings.TrimPrefix(args[i], "--fail-on=")
+			} else if strings.HasPrefix(args[i], "--model=") {
+				modelFlag = strings.TrimPrefix(args[i], "--model=")
+			} else if strings.HasPrefix(args[i], "--agent-binary=") {
+				agentBinaryFlag = strings.TrimPrefix(args[i], "--agent-binary=")
+			} else if strings.HasPrefix(args[i], "--timeout-seconds=") {
+				timeoutSecondsFlag = strings.TrimPrefix(args[i], "--timeout-seconds=")
 			} else if strings.HasPrefix(args[i], "-") {
 				// po-c2iff: unrecognized flag. Silently ignoring used to
 				// hide typos and renamed flags (e.g. someone trying the
@@ -466,32 +491,30 @@ func CmdScan(args []string, version string) {
 		}
 	}
 
-	// --list-matchers is independent of any scan invocation.
-	if listMatchers {
-		runListMatchers(matchersSourceFilter, format)
-		return
-	}
-
-	if localMode {
-		runLocalScan(version, localScanArgs{
-			service:              service,
-			targetDir:            targetDir,
-			format:               format,
-			submit:               submit,
-			matchersFlag:         matchersFlag,
-			changedOnly:          changedOnly,
-			baseRef:              baseRef,
-			scanAllOnMissingBase: scanAllOnMissingBase,
-			dryRun:               dryRun,
-			ciMode:               ciMode,
-			prComment:            prComment,
-			noDedupe:             noDedupe,
-			mode:                 scanModeFlag,
-			profile:              profileFlag,
-			timeout:              timeoutFlag,
-			noDigest:             noDigest,
+	// po-66evv.5: --agent selects the change-scoped agent scan.
+	if agentMode {
+		runAgentScan(agentScanArgs{
+			targetDir:      targetDir,
+			staged:         stagedFlag,
+			changedOnly:    changedOnly,
+			prePush:        prePushFlag,
+			baseRef:        baseRef,
+			mode:           scanModeFlag,
+			failOn:         failOnFlag,
+			model:          modelFlag,
+			agentBinary:    agentBinaryFlag,
+			agentPreset:    agentPresetFlag,
+			timeoutSeconds: timeoutSecondsFlag,
+			format:         format,
+			submit:         submit,
+			service:        service,
+			timeout:        timeoutFlag,
 		})
 		return
+	}
+	if stagedFlag || prePushFlag || failOnFlag != "" || modelFlag != "" || agentBinaryFlag != "" || agentPresetFlag != "" || timeoutSecondsFlag != "" {
+		fmt.Fprintln(os.Stderr, "Error: --staged, --pre-push, --fail-on, --model, --agent-binary, --agent-preset, and --timeout-seconds require --agent")
+		os.Exit(cliutil.ExitUsage)
 	}
 
 	if targetDir != "" {
@@ -910,7 +933,7 @@ func submitScan(cfg *config.Config, scanReq *ScanRequest, timeout time.Duration)
 
 		switch {
 		case resp.StatusCode == 401 || resp.StatusCode == 403:
-			return nil, fmt.Errorf("authentication failed against %s — run 'rvl login' to reconfigure (status %d)", cfg.APIURL, resp.StatusCode)
+			return nil, fmt.Errorf("authentication failed against %s - run 'rvl login' to reconfigure (status %d)", cfg.APIURL, resp.StatusCode)
 		case resp.StatusCode == 429 && attempt < maxRetries:
 			delay := parseRetryAfter(resp.Header.Get("Retry-After"))
 			if delay <= 0 || delay > maxBackoff {

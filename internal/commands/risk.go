@@ -471,7 +471,7 @@ func CmdRiskList(args []string) {
 }
 
 // CmdRiskReady shows the top unresolved risks ranked by score (highest value first).
-// "Ready" means the risk has status "applicable" — the polaris API emits
+// "Ready" means the risk has status "applicable" - the polaris API emits
 // applicable / accepted / mitigated as the canonical lifecycle (post
 // po-rf63t / po-072n2); the prior comment claiming "detected" was the
 // only open status was stale and the filter below returned nothing in

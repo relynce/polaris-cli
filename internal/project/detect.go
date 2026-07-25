@@ -258,7 +258,7 @@ func DetectComponents(rootDir string) []ProjectComponent {
 	if _, err := os.Stat(pubspecPath); err == nil {
 		libDir := filepath.Join(rootDir, "lib")
 		if _, err := os.Stat(libDir); err == nil {
-			// Root is a Flutter/Dart project — extract name from pubspec
+			// Root is a Flutter/Dart project - extract name from pubspec
 			if data, err := os.ReadFile(pubspecPath); err == nil {
 				name := ""
 				for _, line := range strings.Split(string(data), "\n") {
@@ -293,7 +293,7 @@ func DetectComponents(rootDir string) []ProjectComponent {
 	if len(components) == 0 {
 		for _, bf := range buildFiles {
 			if _, err := os.Stat(filepath.Join(rootDir, bf)); err == nil {
-				// Root has a build file — will be handled by caller as fallback
+				// Root has a build file - will be handled by caller as fallback
 				break
 			}
 		}
