@@ -56,6 +56,10 @@ type AdapterConfig struct {
 	Model   string
 	Timeout time.Duration
 	Binary  string
+	// MaxTurns caps the agent's tool-use loop (claude --max-turns). 0 leaves
+	// it uncapped. A cap bounds runaway exploration that would otherwise blow
+	// the per-lens Timeout (po-ksrjz). Configurable via scanner.agent.max_turns.
+	MaxTurns int
 }
 
 // Infra-error taxonomy for the gate policy (spec: Gate policy). Both

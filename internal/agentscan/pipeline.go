@@ -2,6 +2,7 @@ package agentscan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -25,6 +26,13 @@ const (
 	// DefaultMaxInvocations caps the chunk x lens fan-out so a huge
 	// chunked diff cannot launch unbounded agent processes.
 	DefaultMaxInvocations = 12
+
+	// DefaultConcurrency bounds how many agent invocations run at once
+	// (po-ksrjz). Unbounded parallelism let a large diff launch up to
+	// MaxInvocations claude processes simultaneously; they contend for the
+	// API and rate-limit each other into per-lens timeouts. 4 keeps the
+	// common 3-lens case fully parallel while capping larger diffs.
+	DefaultConcurrency = 4
 
 	// DefaultMaxPrePushRefs caps how many pushed refs a single pre-push
 	// invocation scans, so `git push --all` cannot fan out unbounded
@@ -67,6 +75,10 @@ type PipelineConfig struct {
 	ExtraGeneratedGlobs []string
 	BudgetWarnUSD       float64 // warn when total cost exceeds this (0 = no warning)
 	MaxInvocations      int     // chunk x lens cap (0 = DefaultMaxInvocations)
+	// Concurrency bounds simultaneous agent invocations (0 =
+	// DefaultConcurrency). Lower values trade wall-clock for fewer API
+	// rate-limit-driven per-lens timeouts (po-ksrjz).
+	Concurrency int
 	// Waivers suppress matching findings before the gate (po-66evv.7).
 	// Keyed on rule slug + file glob; a waived finding is reported but
 	// never gates. Populated by the CLI from .revelara.yaml waivers.
@@ -112,6 +124,44 @@ func applyServerSeverity(ctx context.Context, cfg PipelineConfig, res *PipelineR
 		return
 	}
 	res.Findings = scored
+}
+
+// runLensResilient runs a lens and, on a transient failure (timeout /
+// rate-limit / agent error), retries exactly once (po-ksrjz). A missing agent
+// binary and parent-context cancellation are not retried. The retry's result
+// is returned with Retried set so the pipeline can surface it.
+func runLensResilient(ctx context.Context, a Adapter, l Lens, cs ChangeSet, snapshotDir string) LensResult {
+	r := RunLens(ctx, a, l, cs, snapshotDir)
+	if r.Err == nil || !isRetryableLensErr(r.Err) || ctx.Err() != nil {
+		return r
+	}
+	retry := RunLens(ctx, a, l, cs, snapshotDir)
+	retry.Retried = true
+	return retry
+}
+
+// countRetried returns how many lens results came from a retry.
+func countRetried(results []LensResult) int {
+	n := 0
+	for _, r := range results {
+		if r.Retried {
+			n++
+		}
+	}
+	return n
+}
+
+// isRetryableLensErr reports whether a lens error is worth one retry: agent
+// timeouts and transient invoke/agent errors are; a missing agent binary and a
+// user-cancelled parent context are not.
+func isRetryableLensErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrAgentUnavailable) || errors.Is(err, context.Canceled) {
+		return false
+	}
+	return true
 }
 
 // PipelineResult is everything one scan produced. Notices MUST be
@@ -393,13 +443,20 @@ func RunPipeline(ctx context.Context, cfg PipelineConfig, cs ChangeSet) (Pipelin
 		invs = invs[:maxInv]
 	}
 
+	concurrency := cfg.Concurrency
+	if concurrency <= 0 {
+		concurrency = DefaultConcurrency
+	}
 	results := make([]LensResult, len(invs))
+	sem := make(chan struct{}, concurrency)
 	var wg sync.WaitGroup
 	for i, inv := range invs {
 		wg.Add(1)
 		go func(i int, inv invocation) {
 			defer wg.Done()
-			r := RunLens(ctx, cfg.Adapter, inv.lens, inv.chunk, snapDir)
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			r := runLensResilient(ctx, cfg.Adapter, inv.lens, inv.chunk, snapDir)
 			results[i] = r
 			emit(ProgressEvent{
 				Kind:     ProgressLensDone,
@@ -417,6 +474,9 @@ func RunPipeline(ctx context.Context, cfg PipelineConfig, cs ChangeSet) (Pipelin
 		return res, err
 	}
 	res.LensResults = results
+	if n := countRetried(results); n > 0 {
+		res.Notices = append(res.Notices, fmt.Sprintf("%d lens invocation(s) retried after a transient failure", n))
+	}
 
 	// 10. Cost is summed across ALL results, including errored ones,
 	// before any filtering: spend happened regardless.

@@ -86,6 +86,11 @@ type AgentScanConfig struct {
 	BudgetWarnUSD  float64  `yaml:"budget_warn_usd,omitempty"`
 	GeneratedGlobs []string `yaml:"generated_globs,omitempty"`
 	MaxInvocations int      `yaml:"max_invocations,omitempty"`
+	// MaxTurns caps the agent tool-use loop (claude --max-turns); 0 = uncapped.
+	// Concurrency bounds simultaneous agent invocations; 0 = DefaultConcurrency.
+	// Both bound runtime / reduce timeout-driven lens failures (po-ksrjz).
+	MaxTurns    int `yaml:"max_turns,omitempty"`
+	Concurrency int `yaml:"concurrency,omitempty"`
 }
 
 // WaiverEntry is a single in-repo waiver. The matcher slug is required;

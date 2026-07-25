@@ -67,6 +67,8 @@ type agentScanSettings struct {
 	BudgetWarnUSD  float64
 	GeneratedGlobs []string
 	MaxInvocations int
+	MaxTurns       int // agent tool-use loop cap (0 = uncapped)
+	Concurrency    int // simultaneous agent invocations (0 = DefaultConcurrency)
 }
 
 // forceThroughHint is the last line of a blocked scan's output. Both
@@ -146,6 +148,18 @@ func resolveAgentScanSettings(a agentScanArgs, cfg *project.AgentScanConfig) (ag
 				return s, fmt.Errorf("invalid scanner.agent.max_invocations %d (must be positive)", cfg.MaxInvocations)
 			}
 			s.MaxInvocations = cfg.MaxInvocations
+		}
+		if cfg.MaxTurns != 0 {
+			if cfg.MaxTurns < 0 {
+				return s, fmt.Errorf("invalid scanner.agent.max_turns %d (must be positive)", cfg.MaxTurns)
+			}
+			s.MaxTurns = cfg.MaxTurns
+		}
+		if cfg.Concurrency != 0 {
+			if cfg.Concurrency < 0 {
+				return s, fmt.Errorf("invalid scanner.agent.concurrency %d (must be positive)", cfg.Concurrency)
+			}
+			s.Concurrency = cfg.Concurrency
 		}
 		// Preset is a built-in adapter NAME, safe to accept from repo
 		// config (po-66evv.10). A custom command string is not a repo
@@ -253,7 +267,7 @@ func runAgentScan(a agentScanArgs) {
 	// from RVL_AGENT_CMD (a user-level source), never repo config.
 	adapter, err := agentscan.SelectAdapter(agentscan.AdapterChoice{
 		Preset:         settings.Preset,
-		Config:         agentscan.AdapterConfig{Model: settings.Model, Timeout: settings.Timeout, Binary: settings.Binary},
+		Config:         agentscan.AdapterConfig{Model: settings.Model, Timeout: settings.Timeout, Binary: settings.Binary, MaxTurns: settings.MaxTurns},
 		TrustedCommand: parseAgentCmdEnv(os.Getenv("RVL_AGENT_CMD")),
 	})
 	if err != nil {
@@ -273,6 +287,7 @@ func runAgentScan(a agentScanArgs) {
 		ExtraGeneratedGlobs: settings.GeneratedGlobs,
 		BudgetWarnUSD:       settings.BudgetWarnUSD,
 		MaxInvocations:      settings.MaxInvocations,
+		Concurrency:         settings.Concurrency,
 		Waivers:             waivers,
 	}
 

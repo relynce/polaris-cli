@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -73,12 +74,18 @@ func (a *claudeAdapter) Invoke(ctx context.Context, prompt, snapshotDir string) 
 	ctx, cancel := context.WithTimeout(ctx, a.cfg.Timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, bin,
+	args := []string{
 		"-p",
 		"--output-format", "json",
 		"--allowedTools", "Read",
 		"--model", a.cfg.Model,
-	)
+	}
+	// Bound the tool-use loop when configured, so a runaway lens can't crawl
+	// the tree until it hits the timeout (po-ksrjz).
+	if a.cfg.MaxTurns > 0 {
+		args = append(args, "--max-turns", strconv.Itoa(a.cfg.MaxTurns))
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = snapshotDir
 	cmd.Stdin = strings.NewReader(prompt)
 	var stdout, stderr bytes.Buffer
