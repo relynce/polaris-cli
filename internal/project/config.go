@@ -91,6 +91,10 @@ type AgentScanConfig struct {
 	// Both bound runtime / reduce timeout-driven lens failures (po-ksrjz).
 	MaxTurns    int `yaml:"max_turns,omitempty"`
 	Concurrency int `yaml:"concurrency,omitempty"`
+	// GateScope: "changed" (default) gates only on findings on changed lines
+	// (pre-existing findings are reported as advisory); "all" gates on every
+	// finding. New-code gating; bounds detection-variance goalpost-moving.
+	GateScope string `yaml:"gate_scope,omitempty"`
 }
 
 // WaiverEntry is a single in-repo waiver. The matcher slug is required;

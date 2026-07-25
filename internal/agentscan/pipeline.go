@@ -102,6 +102,10 @@ type PipelineConfig struct {
 	// with a server-computed, data-grounded band before the gate (po-7si2t.6).
 	// RunPipeline is fail-open: a Score error keeps the agent severities.
 	Scorer Scorer
+	// GateScope selects new-code gating: "changed" (default) gates only on
+	// findings on changed lines and marks the rest Advisory; "all" gates on
+	// every finding. See newcode.go.
+	GateScope string
 }
 
 // Scorer replaces agent-assigned finding severities with server-computed,
@@ -318,6 +322,11 @@ func ComputeGate(cfg PipelineConfig, res PipelineResult) GateDecision {
 
 	var d GateDecision
 	for _, f := range res.Findings {
+		// Advisory findings (not on changed lines under new-code gating) are
+		// reported but never block.
+		if f.Advisory {
+			continue
+		}
 		if severityRank[f.Severity] >= threshold {
 			d.BlockedOn = append(d.BlockedOn, f)
 		}
@@ -568,6 +577,11 @@ func RunPipeline(ctx context.Context, cfg PipelineConfig, cs ChangeSet) (Pipelin
 	res.Findings = dedupeFindings(all)
 
 	applyServerSeverity(ctx, cfg, &res)
+
+	// po-7si2t: new-code gating — mark findings not on changed lines Advisory
+	// so only what the change introduced can block. Runs after scoring so the
+	// (server) severity is final; the flag rides through waivers to the gate.
+	res.Findings = classifyNewCode(cfg, cs, res.Findings)
 
 	// po-66evv.7: apply (rule, file-glob) waivers before the gate so
 	// waived findings are reported but never gate. Expired waivers are

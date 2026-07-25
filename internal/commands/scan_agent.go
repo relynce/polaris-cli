@@ -67,8 +67,9 @@ type agentScanSettings struct {
 	BudgetWarnUSD  float64
 	GeneratedGlobs []string
 	MaxInvocations int
-	MaxTurns       int // agent tool-use loop cap (0 = uncapped)
-	Concurrency    int // simultaneous agent invocations (0 = DefaultConcurrency)
+	MaxTurns       int    // agent tool-use loop cap (0 = uncapped)
+	Concurrency    int    // simultaneous agent invocations (0 = DefaultConcurrency)
+	GateScope      string // new-code gating: "changed" (default) | "all"
 }
 
 // forceThroughHint is the last line of a blocked scan's output. Both
@@ -113,6 +114,7 @@ func resolveAgentScanSettings(a agentScanArgs, cfg *project.AgentScanConfig) (ag
 		Model:          agentscan.DefaultModel,
 		Timeout:        agentscan.DefaultTimeout,
 		MaxInvocations: agentscan.DefaultMaxInvocations,
+		GateScope:      agentscan.GateScopeChanged,
 	}
 	if cfg != nil {
 		if cfg.Mode != "" {
@@ -160,6 +162,13 @@ func resolveAgentScanSettings(a agentScanArgs, cfg *project.AgentScanConfig) (ag
 				return s, fmt.Errorf("invalid scanner.agent.concurrency %d (must be positive)", cfg.Concurrency)
 			}
 			s.Concurrency = cfg.Concurrency
+		}
+		if cfg.GateScope != "" {
+			gs := strings.ToLower(strings.TrimSpace(cfg.GateScope))
+			if gs != agentscan.GateScopeChanged && gs != agentscan.GateScopeAll {
+				return s, fmt.Errorf("invalid scanner.agent.gate_scope %q (must be %q or %q)", cfg.GateScope, agentscan.GateScopeChanged, agentscan.GateScopeAll)
+			}
+			s.GateScope = gs
 		}
 		// Preset is a built-in adapter NAME, safe to accept from repo
 		// config (po-66evv.10). A custom command string is not a repo
@@ -289,6 +298,7 @@ func runAgentScan(a agentScanArgs) {
 		MaxInvocations:      settings.MaxInvocations,
 		Concurrency:         settings.Concurrency,
 		LensBudget:          settings.Timeout, // global per-lens budget shared across retries
+		GateScope:           settings.GateScope,
 		Waivers:             waivers,
 	}
 
@@ -724,9 +734,24 @@ func printAgentScanHuman(res agentscan.PipelineResult, s agentScanSettings) {
 				lr.Lens.ID, d.Finding.Rule, d.Finding.File, d.Finding.Line, d.Reason)
 		}
 	}
-	if len(res.Findings) > 0 {
+	var gated, advisory []agentscan.Finding
+	for _, f := range res.Findings {
+		if f.Advisory {
+			advisory = append(advisory, f)
+		} else {
+			gated = append(gated, f)
+		}
+	}
+	if len(gated) > 0 {
 		fmt.Println("\nFindings:")
-		for _, f := range res.Findings {
+		for _, f := range gated {
+			fmt.Printf("  %-8s %-28s %s:%d  %s\n",
+				strings.ToUpper(f.Severity), f.Rule, f.File, f.Line, f.Title)
+		}
+	}
+	if len(advisory) > 0 {
+		fmt.Printf("\nAdvisory — pre-existing / not on changed lines (%d, not gated):\n", len(advisory))
+		for _, f := range advisory {
 			fmt.Printf("  %-8s %-28s %s:%d  %s\n",
 				strings.ToUpper(f.Severity), f.Rule, f.File, f.Line, f.Title)
 		}
