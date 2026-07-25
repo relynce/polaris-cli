@@ -84,6 +84,10 @@ type Finding struct {
 	Description    string `json:"description"`
 	Recommendation string `json:"recommendation,omitempty"`
 	Lens           string `json:"lens,omitempty"` // stamped by the orchestrator
+	// Advisory marks a finding that is NOT on a changed line (pre-existing /
+	// context in a touched file). Advisory findings are reported but never
+	// gate under new-code gating (GateScope=changed). See newcode.go.
+	Advisory bool `json:"advisory,omitempty"`
 }
 
 // DroppedFinding is a finding rejected by ValidateFindings (rule not

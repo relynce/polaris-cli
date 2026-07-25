@@ -179,7 +179,10 @@ func TestRunPipelineHappyPathAggregation(t *testing.T) {
 	stub := &fakeAdapter{fn: func(string) (InvokeResult, error) {
 		return InvokeResult{Raw: payloadJSON(t, perLens, "ok"), CostUSD: 0.5}, nil
 	}}
-	res, err := RunPipeline(context.Background(), PipelineConfig{Root: dir, Adapter: stub}, stagedCS(t, dir))
+	// GateScopeAll: this test exercises aggregation + gate policy, not
+	// new-code line-scoping (the fabricated findings' lines don't map to the
+	// tiny staged change); new-code gating has its own tests in newcode_test.go.
+	res, err := RunPipeline(context.Background(), PipelineConfig{Root: dir, Adapter: stub, GateScope: GateScopeAll}, stagedCS(t, dir))
 	if err != nil {
 		t.Fatalf("RunPipeline: %v", err)
 	}
