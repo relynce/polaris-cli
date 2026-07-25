@@ -82,6 +82,7 @@ func TestResolveAgentScanSettingsYAML(t *testing.T) {
 		BudgetWarnUSD:  5.5,
 		GeneratedGlobs: []string{"dist/**"},
 		MaxInvocations: 6,
+		ChunkMaxFiles:  3,
 	}
 	s, err := resolveAgentScanSettings(agentScanArgs{staged: true}, cfg)
 	if err != nil {
@@ -95,6 +96,9 @@ func TestResolveAgentScanSettingsYAML(t *testing.T) {
 	}
 	if s.BudgetWarnUSD != 5.5 || s.MaxInvocations != 6 {
 		t.Errorf("budget/invocations not applied: %+v", s)
+	}
+	if s.ChunkMaxFiles != 3 {
+		t.Errorf("ChunkMaxFiles = %d, want 3", s.ChunkMaxFiles)
 	}
 	if len(s.GeneratedGlobs) != 1 || s.GeneratedGlobs[0] != "dist/**" {
 		t.Errorf("GeneratedGlobs = %v", s.GeneratedGlobs)
@@ -149,6 +153,7 @@ func TestResolveAgentScanSettingsInvalid(t *testing.T) {
 		{"zero timeout flag", agentScanArgs{timeoutSeconds: "0"}, nil, "--timeout-seconds"},
 		{"negative yaml timeout", agentScanArgs{}, &project.AgentScanConfig{TimeoutSeconds: -5}, "scanner.agent.timeout_seconds"},
 		{"negative yaml max_invocations", agentScanArgs{}, &project.AgentScanConfig{MaxInvocations: -1}, "scanner.agent.max_invocations"},
+		{"negative yaml chunk_max_files", agentScanArgs{}, &project.AgentScanConfig{ChunkMaxFiles: -2}, "scanner.agent.chunk_max_files"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

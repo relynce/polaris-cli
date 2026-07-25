@@ -91,6 +91,10 @@ type AgentScanConfig struct {
 	// Both bound runtime / reduce timeout-driven lens failures (po-ksrjz).
 	MaxTurns    int `yaml:"max_turns,omitempty"`
 	Concurrency int `yaml:"concurrency,omitempty"`
+	// ChunkMaxFiles bounds how many changed files a single lens invocation
+	// reasons over; 0 = DefaultChunkMaxFiles. Per-lens runtime scales with
+	// file count, so grouping keeps each invocation under the timeout.
+	ChunkMaxFiles int `yaml:"chunk_max_files,omitempty"`
 	// GateScope: "changed" (default) gates only on findings on changed lines
 	// (pre-existing findings are reported as advisory); "all" gates on every
 	// finding. New-code gating; bounds detection-variance goalpost-moving.

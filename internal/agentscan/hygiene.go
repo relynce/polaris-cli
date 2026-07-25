@@ -245,6 +245,14 @@ func newPathFromHeader(line string) string {
 const (
 	DefaultSoftLimitLines = 1500
 	DefaultHardLimitLines = 6000
+	// DefaultChunkMaxFiles bounds how many changed files a single lens
+	// invocation reasons over. Per-lens runtime scales with file count
+	// (not diff line count); grouping keeps each invocation well under the
+	// per-lens timeout. Groups of this size retain enough cross-file
+	// context to summarize repeated patterns — per-file (1) does not and
+	// explodes the finding count (measured). See the per-file-chunking
+	// benchmark.
+	DefaultChunkMaxFiles = 4
 )
 
 // BudgetResult is the outcome of applying the size budget.
@@ -267,8 +275,11 @@ type BudgetResult struct {
 }
 
 // ApplyBudget enforces the size budget on a filtered change set.
-// Non-positive limits fall back to the defaults.
-func ApplyBudget(cs ChangeSet, softLimit, hardLimit int) BudgetResult {
+// Non-positive limits fall back to the defaults. A change set is chunked
+// when it is over the soft line limit OR spans more than chunkMaxFiles
+// changed files: per-lens runtime scales with file count, so many small
+// files still need splitting even under the line limit.
+func ApplyBudget(cs ChangeSet, softLimit, hardLimit, chunkMaxFiles int) BudgetResult {
 	if softLimit <= 0 {
 		softLimit = DefaultSoftLimitLines
 	}
@@ -278,10 +289,10 @@ func ApplyBudget(cs ChangeSet, softLimit, hardLimit int) BudgetResult {
 	if hardLimit < softLimit {
 		hardLimit = softLimit
 	}
-	total := lineCount(cs.Diff)
-	if total <= softLimit {
-		return BudgetResult{ChangeSet: cs}
+	if chunkMaxFiles <= 0 {
+		chunkMaxFiles = DefaultChunkMaxFiles
 	}
+	total := lineCount(cs.Diff)
 	if total > hardLimit {
 		degraded := cs
 		degraded.Diff = fileListSummary(cs, total, hardLimit)
@@ -295,15 +306,21 @@ func ApplyBudget(cs ChangeSet, softLimit, hardLimit int) BudgetResult {
 				total, hardLimit)},
 		}
 	}
-	return chunkBySection(cs, softLimit, total)
+	if total <= softLimit && len(cs.Files) <= chunkMaxFiles {
+		return BudgetResult{ChangeSet: cs}
+	}
+	return chunkBySection(cs, softLimit, chunkMaxFiles, total)
 }
 
-// chunkBySection splits an over-soft-limit change set into per-file
-// chunks, greedily grouping consecutive diff sections so each chunk
-// stays under the soft limit. A single section that alone exceeds the
-// limit gets its own chunk (it cannot be split further at file
-// granularity) and its own notice.
-func chunkBySection(cs ChangeSet, softLimit, total int) BudgetResult {
+// chunkBySection splits a change set into chunks, greedily grouping
+// consecutive diff sections so each chunk stays under the soft LINE limit
+// AND holds at most chunkMaxFiles files. A single section that alone
+// exceeds the line limit gets its own chunk (it cannot be split further at
+// file granularity) and its own notice.
+func chunkBySection(cs ChangeSet, softLimit, chunkMaxFiles, total int) BudgetResult {
+	if chunkMaxFiles <= 0 {
+		chunkMaxFiles = DefaultChunkMaxFiles
+	}
 	prefix, sections := splitDiffSections(cs.Diff)
 	fileByPath := map[string]ChangedFile{}
 	for _, f := range cs.Files {
@@ -328,7 +345,9 @@ func chunkBySection(cs ChangeSet, softLimit, total int) BudgetResult {
 	matched := map[string]bool{}
 	for _, sec := range sections {
 		n := lineCount(sec.Text)
-		if curLines > 0 && curLines+n > softLimit {
+		// Flush before adding this section if the current chunk is full on
+		// either axis: too many lines, or already at the file cap.
+		if curLines > 0 && (curLines+n > softLimit || len(curFiles) >= chunkMaxFiles) {
 			flush()
 		}
 		curDiff.WriteString(sec.Text)
@@ -347,13 +366,14 @@ func chunkBySection(cs ChangeSet, softLimit, total int) BudgetResult {
 	flush()
 
 	// Files with no diff section (defensive: should not happen for a
-	// git-produced diff) still belong to exactly one chunk.
+	// git-produced diff) still get grouped into chunks under the file cap.
 	for _, f := range cs.Files {
 		if !matched[f.Path] {
-			if len(chunks) == 0 {
+			if len(chunks) == 0 || len(chunks[len(chunks)-1].Files) >= chunkMaxFiles {
 				chunks = append(chunks, ChangeSet{BaseDesc: cs.BaseDesc})
 			}
-			chunks[0].Files = append(chunks[0].Files, f)
+			last := &chunks[len(chunks)-1]
+			last.Files = append(last.Files, f)
 			matched[f.Path] = true
 		}
 	}
@@ -361,8 +381,9 @@ func chunkBySection(cs ChangeSet, softLimit, total int) BudgetResult {
 		chunks[i].BaseDesc = fmt.Sprintf("%s (chunk %d/%d)", cs.BaseDesc, i+1, len(chunks))
 	}
 	notices = append([]string{fmt.Sprintf(
-		"diff is %d lines, over the soft limit of %d: split into %d per-file chunks scanned as separate lens invocations; cross-file interactions between chunks may be missed",
-		total, softLimit, len(chunks))}, notices...)
+		"change set (%d diff lines, %d files) split into %d chunks of at most %d files / %d lines each, "+
+			"scanned as separate lens invocations; cross-file interactions between chunks may be missed",
+		total, len(cs.Files), len(chunks), chunkMaxFiles, softLimit)}, notices...)
 	return BudgetResult{ChangeSet: cs, Chunks: chunks, Notices: notices}
 }
 

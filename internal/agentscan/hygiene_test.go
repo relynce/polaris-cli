@@ -210,7 +210,7 @@ func TestApplyBudgetUnderSoftPassthrough(t *testing.T) {
 		Files:    []ChangedFile{{Path: "a.go", Kind: ChangeAdded}},
 		BaseDesc: "staged",
 	}
-	res := ApplyBudget(cs, 100, 1000)
+	res := ApplyBudget(cs, 100, 1000, 100)
 	if res.FileListMode {
 		t.Fatal("under-soft diff must not degrade to file-list mode")
 	}
@@ -236,7 +236,7 @@ func TestApplyBudgetOverSoftChunks(t *testing.T) {
 	}
 	cs := ChangeSet{Diff: diff.String(), Files: files, BaseDesc: "staged"}
 
-	res := ApplyBudget(cs, soft, hard)
+	res := ApplyBudget(cs, soft, hard, 100)
 	if res.FileListMode {
 		t.Fatal("over-soft under-hard must chunk, not degrade")
 	}
@@ -278,7 +278,7 @@ func TestApplyBudgetGiantFileOwnChunk(t *testing.T) {
 		BaseDesc: "staged",
 	}
 
-	res := ApplyBudget(cs, soft, hard)
+	res := ApplyBudget(cs, soft, hard, 100)
 	if res.FileListMode {
 		t.Fatal("must chunk, not degrade")
 	}
@@ -311,7 +311,7 @@ func TestApplyBudgetOverHardFileListMode(t *testing.T) {
 		BaseDesc: "staged",
 	}
 
-	res := ApplyBudget(cs, soft, hard)
+	res := ApplyBudget(cs, soft, hard, 100)
 	if !res.FileListMode {
 		t.Fatal("over-hard diff must degrade to file-list mode")
 	}
@@ -340,14 +340,83 @@ func TestApplyBudgetDefaults(t *testing.T) {
 	if DefaultSoftLimitLines != 1500 || DefaultHardLimitLines != 6000 {
 		t.Fatalf("default limits changed: soft=%d hard=%d", DefaultSoftLimitLines, DefaultHardLimitLines)
 	}
+	if DefaultChunkMaxFiles != 4 {
+		t.Fatalf("default chunk-max-files changed: %d", DefaultChunkMaxFiles)
+	}
 	cs := ChangeSet{
 		Diff:  synthSection("a.go", synthLines(10)),
 		Files: []ChangedFile{{Path: "a.go", Kind: ChangeAdded}},
 	}
 	// Non-positive limits fall back to the defaults.
-	res := ApplyBudget(cs, 0, 0)
+	res := ApplyBudget(cs, 0, 0, 0)
 	if res.FileListMode || len(res.Chunks) != 0 {
 		t.Fatal("small diff with default limits must pass through")
+	}
+}
+
+// Many tiny files, well under the soft LINE limit but over the file cap,
+// must still chunk: per-lens runtime scales with file count, not lines.
+func TestApplyBudgetManyFilesUnderSoftChunks(t *testing.T) {
+	soft, hard, maxFiles := 100000, 200000, 3
+	var diff strings.Builder
+	var files []ChangedFile
+	for i := 0; i < 7; i++ {
+		p := fmt.Sprintf("f%d.go", i)
+		diff.WriteString(synthSection(p, synthLines(3)))
+		files = append(files, ChangedFile{Path: p, Kind: ChangeAdded})
+	}
+	cs := ChangeSet{Diff: diff.String(), Files: files, BaseDesc: "staged"}
+
+	res := ApplyBudget(cs, soft, hard, maxFiles)
+	if res.FileListMode {
+		t.Fatal("under-soft many-file diff must chunk, not degrade")
+	}
+	if len(res.Chunks) != 3 { // ceil(7/3)
+		t.Fatalf("7 files at max %d/chunk = 3 chunks, got %d", maxFiles, len(res.Chunks))
+	}
+	seen := map[string]int{}
+	for i, ch := range res.Chunks {
+		if len(ch.Files) > maxFiles {
+			t.Fatalf("chunk %d has %d files, over cap %d", i, len(ch.Files), maxFiles)
+		}
+		for _, f := range ch.Files {
+			seen[f.Path]++
+		}
+	}
+	if len(seen) != 7 {
+		t.Fatalf("chunks cover %d files, want 7", len(seen))
+	}
+	for p, n := range seen {
+		if n != 1 {
+			t.Fatalf("file %s covered %d times, want exactly 1", p, n)
+		}
+	}
+	if len(res.Notices) == 0 {
+		t.Fatal("file-count chunking must produce a notice (no silent split)")
+	}
+}
+
+// A change with exactly the file cap, under the soft limit, must NOT chunk.
+func TestApplyBudgetAtFileCapPassthrough(t *testing.T) {
+	maxFiles := 4
+	var diff strings.Builder
+	var files []ChangedFile
+	for i := 0; i < maxFiles; i++ {
+		p := fmt.Sprintf("f%d.go", i)
+		diff.WriteString(synthSection(p, synthLines(3)))
+		files = append(files, ChangedFile{Path: p, Kind: ChangeAdded})
+	}
+	cs := ChangeSet{Diff: diff.String(), Files: files, BaseDesc: "staged"}
+
+	res := ApplyBudget(cs, 100000, 200000, maxFiles)
+	if res.FileListMode {
+		t.Fatal("at-cap under-soft diff must not degrade")
+	}
+	if len(res.Chunks) != 0 {
+		t.Fatalf("files == cap must pass through unchunked, got %d chunks", len(res.Chunks))
+	}
+	if len(res.Notices) != 0 {
+		t.Fatalf("passthrough must not produce notices, got %v", res.Notices)
 	}
 }
 
