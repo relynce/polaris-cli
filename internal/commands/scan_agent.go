@@ -16,6 +16,7 @@ import (
 
 	"github.com/revelara-ai/rvl-cli/internal/agentscan"
 	"github.com/revelara-ai/rvl-cli/internal/cliutil"
+	"github.com/revelara-ai/rvl-cli/internal/api"
 	"github.com/revelara-ai/rvl-cli/internal/project"
 	"github.com/revelara-ai/rvl-cli/internal/scanner"
 )
@@ -274,6 +275,24 @@ func runAgentScan(a agentScanArgs) {
 		MaxInvocations:      settings.MaxInvocations,
 		Waivers:             waivers,
 	}
+
+	// po-7si2t.6: gate on server-computed, data-grounded severity when the API
+	// is configured. The endpoint scores each finding by its rule (absolute,
+	// deterministic) and the gate uses that band instead of the LLM's relative
+	// label. Fail-open by construction: with no key/service the Scorer is left
+	// nil and local-only runs keep the agent severities.
+	scoreService := a.service
+	if projectCfg != nil && projectCfg.Project != "" {
+		scoreService = projectCfg.Project
+	}
+	if apiCfg := api.LoadAndResolveConfig(); scoreService != "" && apiCfg != nil && apiCfg.APIKey != "" {
+		var crit float64
+		if projectCfg != nil {
+			crit = projectCfg.CriticalityScore()
+		}
+		baseCfg.Scorer = &serverScorer{cfg: apiCfg, service: scoreService, businessCriticality: crit}
+	}
+
 	// Live progress affordances for the human report (the agent takes
 	// ~1-2 min/lens). JSON runs stay quiet for scripting. Progress goes
 	// to stderr so it never mixes into --format json stdout.

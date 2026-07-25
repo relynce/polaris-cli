@@ -81,6 +81,37 @@ type PipelineConfig struct {
 	// pre-push sets it to the pushed sha, since the pushed ref may not be
 	// the checked-out branch. Ignored in staged mode (index is read).
 	SnapshotTreeish string
+	// Scorer, when non-nil, replaces each finding's agent-assigned severity
+	// with a server-computed, data-grounded band before the gate (po-7si2t.6).
+	// RunPipeline is fail-open: a Score error keeps the agent severities.
+	Scorer Scorer
+}
+
+// Scorer replaces agent-assigned finding severities with server-computed,
+// data-grounded bands (po-7si2t.6). The server scores each finding by its rule
+// via /api/v1/findings/score, returning an absolute band rather than the LLM's
+// relative label. Score must return the findings in the same order it received
+// them (the gate maps by position). Any error is treated as fail-open by the
+// caller: the agent severities are kept and the gate is unaffected.
+type Scorer interface {
+	Score(ctx context.Context, findings []Finding) ([]Finding, error)
+}
+
+// applyServerSeverity replaces res.Findings' severities with server-computed
+// bands via cfg.Scorer (po-7si2t.6). It is fail-open: with no scorer, no
+// findings, or any Score error, the agent severities are left untouched (a
+// notice is recorded on error) so scoring can never change the gate outcome
+// unexpectedly.
+func applyServerSeverity(ctx context.Context, cfg PipelineConfig, res *PipelineResult) {
+	if cfg.Scorer == nil || len(res.Findings) == 0 {
+		return
+	}
+	scored, err := cfg.Scorer.Score(ctx, res.Findings)
+	if err != nil {
+		res.Notices = append(res.Notices, "server severity scoring unavailable; using agent severities")
+		return
+	}
+	res.Findings = scored
 }
 
 // PipelineResult is everything one scan produced. Notices MUST be
@@ -412,6 +443,8 @@ func RunPipeline(ctx context.Context, cfg PipelineConfig, cs ChangeSet) (Pipelin
 		all = append(all, r.Findings...)
 	}
 	res.Findings = dedupeFindings(all)
+
+	applyServerSeverity(ctx, cfg, &res)
 
 	// po-66evv.7: apply (rule, file-glob) waivers before the gate so
 	// waived findings are reported but never gate. Expired waivers are
