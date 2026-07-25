@@ -288,6 +288,7 @@ func runAgentScan(a agentScanArgs) {
 		BudgetWarnUSD:       settings.BudgetWarnUSD,
 		MaxInvocations:      settings.MaxInvocations,
 		Concurrency:         settings.Concurrency,
+		LensBudget:          settings.Timeout, // global per-lens budget shared across retries
 		Waivers:             waivers,
 	}
 

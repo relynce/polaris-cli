@@ -58,9 +58,10 @@ func (a *claudeAdapter) CheckAvailability() error {
 // envelope. Only the fields the scan consumes are declared; the
 // envelope carries more (session id, per-model usage, ...).
 type claudeEnvelope struct {
-	Result       string  `json:"result"`
-	TotalCostUSD float64 `json:"total_cost_usd"`
-	IsError      bool    `json:"is_error"`
+	Result         string  `json:"result"`
+	TotalCostUSD   float64 `json:"total_cost_usd"`
+	IsError        bool    `json:"is_error"`
+	APIErrorStatus int     `json:"api_error_status"` // non-zero => upstream model-API error (e.g. 500)
 }
 
 func (a *claudeAdapter) Invoke(ctx context.Context, prompt, snapshotDir string) (InvokeResult, error) {
@@ -114,6 +115,9 @@ func (a *claudeAdapter) Invoke(ctx context.Context, prompt, snapshotDir string) 
 		return InvokeResult{}, fmt.Errorf("claude: parse output envelope: %w", err)
 	}
 	if env.IsError {
+		if env.APIErrorStatus != 0 {
+			return InvokeResult{}, fmt.Errorf("claude: %w (status %d): %s", ErrAgentAPI, env.APIErrorStatus, strings.TrimSpace(env.Result))
+		}
 		return InvokeResult{}, fmt.Errorf("claude: agent error: %s", strings.TrimSpace(env.Result))
 	}
 	return InvokeResult{Raw: env.Result, CostUSD: env.TotalCostUSD, Model: a.cfg.Model}, nil

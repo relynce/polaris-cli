@@ -79,6 +79,11 @@ type PipelineConfig struct {
 	// DefaultConcurrency). Lower values trade wall-clock for fewer API
 	// rate-limit-driven per-lens timeouts (po-ksrjz).
 	Concurrency int
+	// LensBudget is the GLOBAL per-lens time budget shared across a lens's
+	// attempts (retries). 0 = DefaultTimeout. Set equal to the adapter timeout
+	// so one attempt can use the full budget and a fast-failure retry fits
+	// inside it (po-ksrjz).
+	LensBudget time.Duration
 	// Waivers suppress matching findings before the gate (po-66evv.7).
 	// Keyed on rule slug + file glob; a waived finding is reported but
 	// never gates. Populated by the CLI from .revelara.yaml waivers.
@@ -126,18 +131,58 @@ func applyServerSeverity(ctx context.Context, cfg PipelineConfig, res *PipelineR
 	res.Findings = scored
 }
 
-// runLensResilient runs a lens and, on a transient failure (timeout /
-// rate-limit / agent error), retries exactly once (po-ksrjz). A missing agent
-// binary and parent-context cancellation are not retried. The retry's result
-// is returned with Retried set so the pipeline can surface it.
-func runLensResilient(ctx context.Context, a Adapter, l Lens, cs ChangeSet, snapshotDir string) LensResult {
-	r := RunLens(ctx, a, l, cs, snapshotDir)
-	if r.Err == nil || !isRetryableLensErr(r.Err) || ctx.Err() != nil {
-		return r
+// maxLensRetries caps retries per lens; combined with the budget check it
+// gives a cheap fast failure a couple of tries and a slow one none.
+const maxLensRetries = 2
+
+// lensRetryBackoff pauses before retrying a transient lens failure (po-ksrjz):
+// an intermittent upstream API error passes on a brief wait. A var so tests can
+// zero it.
+var lensRetryBackoff = 2 * time.Second
+
+// runLensResilient runs a lens within a GLOBAL per-lens budget shared across
+// attempts (po-ksrjz), retrying a transient failure (upstream API error / rate
+// limit / non-timeout invoke error) with backoff — but ONLY while more than
+// half the budget remains. So a cheap fast failure (API 500 at ~3s, ample
+// budget left) retries, while a failure that already consumed the budget (a
+// timeout) does not: we never start a retry that cannot finish, and total
+// per-lens time stays bounded to `budget`. A missing agent binary and
+// parent-context cancellation are never retried.
+func runLensResilient(ctx context.Context, a Adapter, l Lens, cs ChangeSet, snapshotDir string, budget time.Duration) LensResult {
+	if budget <= 0 {
+		budget = DefaultTimeout
 	}
-	retry := RunLens(ctx, a, l, cs, snapshotDir)
-	retry.Retried = true
-	return retry
+	deadline := time.Now().Add(budget)
+	lctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+
+	r := RunLens(lctx, a, l, cs, snapshotDir)
+	for tries := 0; r.Err != nil && isRetryableLensErr(r.Err) && tries < maxLensRetries; tries++ {
+		// A retry needs a fair shot at finishing: require more than half the
+		// budget left. A timeout ate the budget and fails this; a fast API
+		// error passes it easily.
+		if time.Until(deadline) <= budget/2 {
+			break
+		}
+		select {
+		case <-time.After(lensRetryBackoff):
+		case <-lctx.Done():
+			return r
+		}
+		next := RunLens(lctx, a, l, cs, snapshotDir)
+		next.Retried = true
+		r = next
+	}
+	return r
+}
+
+// lensBudget returns the global per-lens time budget (LensBudget or the
+// default).
+func (c PipelineConfig) lensBudget() time.Duration {
+	if c.LensBudget > 0 {
+		return c.LensBudget
+	}
+	return DefaultTimeout
 }
 
 // countRetried returns how many lens results came from a retry.
@@ -145,6 +190,19 @@ func countRetried(results []LensResult) int {
 	n := 0
 	for _, r := range results {
 		if r.Retried {
+			n++
+		}
+	}
+	return n
+}
+
+// countAPIErrors returns how many errors are upstream agent API errors
+// (ErrAgentAPI) — used to surface them as an upstream problem, not the user's
+// change.
+func countAPIErrors(errs []error) int {
+	n := 0
+	for _, e := range errs {
+		if errors.Is(e, ErrAgentAPI) {
 			n++
 		}
 	}
@@ -456,7 +514,7 @@ func RunPipeline(ctx context.Context, cfg PipelineConfig, cs ChangeSet) (Pipelin
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			r := runLensResilient(ctx, cfg.Adapter, inv.lens, inv.chunk, snapDir)
+			r := runLensResilient(ctx, cfg.Adapter, inv.lens, inv.chunk, snapDir, cfg.lensBudget())
 			results[i] = r
 			emit(ProgressEvent{
 				Kind:     ProgressLensDone,
@@ -496,6 +554,11 @@ func RunPipeline(ctx context.Context, cfg PipelineConfig, cs ChangeSet) (Pipelin
 		}
 	}
 	res.Degraded = len(res.InfraErrors) > 0
+	if n := countAPIErrors(res.InfraErrors); n > 0 {
+		res.Notices = append(res.Notices, fmt.Sprintf(
+			"%d lens invocation(s) failed on an upstream agent API error (e.g. HTTP 500) after retries — "+
+				"this is an upstream/model-API problem, not your change", n))
+	}
 
 	// 12. Aggregate conforming findings across lenses and chunks.
 	var all []Finding

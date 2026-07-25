@@ -69,6 +69,13 @@ var (
 	// executable. Fail-open class.
 	ErrAgentUnavailable = errors.New("agent unavailable")
 
+	// ErrAgentAPI: the agent reached the upstream model API but it
+	// returned an error (e.g. HTTP 500 / rate limit). This is an
+	// UPSTREAM failure, not the user's change and not the agent binary;
+	// it is fast (num_turns small) and worth a backoff retry. Surfaced
+	// distinctly so a fail-open reads as an API problem, not the user's code.
+	ErrAgentAPI = errors.New("agent API error")
+
 	// ErrAgentTimeout: the invocation exceeded its timeout and the
 	// agent process was killed. Fail-open class.
 	ErrAgentTimeout = errors.New("agent timed out")
