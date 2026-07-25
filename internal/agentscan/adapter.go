@@ -56,6 +56,10 @@ type AdapterConfig struct {
 	Model   string
 	Timeout time.Duration
 	Binary  string
+	// MaxTurns caps the agent's tool-use loop (claude --max-turns). 0 leaves
+	// it uncapped. A cap bounds runaway exploration that would otherwise blow
+	// the per-lens Timeout (po-ksrjz). Configurable via scanner.agent.max_turns.
+	MaxTurns int
 }
 
 // Infra-error taxonomy for the gate policy (spec: Gate policy). Both
@@ -64,6 +68,13 @@ var (
 	// ErrAgentUnavailable: the agent binary is missing or not
 	// executable. Fail-open class.
 	ErrAgentUnavailable = errors.New("agent unavailable")
+
+	// ErrAgentAPI: the agent reached the upstream model API but it
+	// returned an error (e.g. HTTP 500 / rate limit). This is an
+	// UPSTREAM failure, not the user's change and not the agent binary;
+	// it is fast (num_turns small) and worth a backoff retry. Surfaced
+	// distinctly so a fail-open reads as an API problem, not the user's code.
+	ErrAgentAPI = errors.New("agent API error")
 
 	// ErrAgentTimeout: the invocation exceeded its timeout and the
 	// agent process was killed. Fail-open class.

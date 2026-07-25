@@ -110,4 +110,7 @@ type LensResult struct {
 	Wall     time.Duration
 	Err      error
 	Dropped  []DroppedFinding
+	// Retried is set when the invocation was re-run once after a transient
+	// failure (timeout / rate-limit); Wall/CostUSD reflect the retry (po-ksrjz).
+	Retried bool
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -57,9 +58,10 @@ func (a *claudeAdapter) CheckAvailability() error {
 // envelope. Only the fields the scan consumes are declared; the
 // envelope carries more (session id, per-model usage, ...).
 type claudeEnvelope struct {
-	Result       string  `json:"result"`
-	TotalCostUSD float64 `json:"total_cost_usd"`
-	IsError      bool    `json:"is_error"`
+	Result         string  `json:"result"`
+	TotalCostUSD   float64 `json:"total_cost_usd"`
+	IsError        bool    `json:"is_error"`
+	APIErrorStatus int     `json:"api_error_status"` // non-zero => upstream model-API error (e.g. 500)
 }
 
 func (a *claudeAdapter) Invoke(ctx context.Context, prompt, snapshotDir string) (InvokeResult, error) {
@@ -73,12 +75,18 @@ func (a *claudeAdapter) Invoke(ctx context.Context, prompt, snapshotDir string) 
 	ctx, cancel := context.WithTimeout(ctx, a.cfg.Timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, bin,
+	args := []string{
 		"-p",
 		"--output-format", "json",
 		"--allowedTools", "Read",
 		"--model", a.cfg.Model,
-	)
+	}
+	// Bound the tool-use loop when configured, so a runaway lens can't crawl
+	// the tree until it hits the timeout (po-ksrjz).
+	if a.cfg.MaxTurns > 0 {
+		args = append(args, "--max-turns", strconv.Itoa(a.cfg.MaxTurns))
+	}
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Dir = snapshotDir
 	cmd.Stdin = strings.NewReader(prompt)
 	var stdout, stderr bytes.Buffer
@@ -107,6 +115,9 @@ func (a *claudeAdapter) Invoke(ctx context.Context, prompt, snapshotDir string) 
 		return InvokeResult{}, fmt.Errorf("claude: parse output envelope: %w", err)
 	}
 	if env.IsError {
+		if env.APIErrorStatus != 0 {
+			return InvokeResult{}, fmt.Errorf("claude: %w (status %d): %s", ErrAgentAPI, env.APIErrorStatus, strings.TrimSpace(env.Result))
+		}
 		return InvokeResult{}, fmt.Errorf("claude: agent error: %s", strings.TrimSpace(env.Result))
 	}
 	return InvokeResult{Raw: env.Result, CostUSD: env.TotalCostUSD, Model: a.cfg.Model}, nil
