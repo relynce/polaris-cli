@@ -247,12 +247,13 @@ const (
 	DefaultHardLimitLines = 6000
 	// DefaultChunkMaxFiles bounds how many changed files a single lens
 	// invocation reasons over. Per-lens runtime scales with file count
-	// (not diff line count); grouping keeps each invocation well under the
-	// per-lens timeout. Groups of this size retain enough cross-file
-	// context to summarize repeated patterns — per-file (1) does not and
-	// explodes the finding count (measured). See the per-file-chunking
-	// benchmark.
-	DefaultChunkMaxFiles = 4
+	// (not diff line count); grouping keeps each invocation under the
+	// per-lens timeout. Groups this size retain enough cross-file context
+	// to summarize repeated patterns — per-file (1) does not and explodes
+	// the finding count (measured). Set to 3 rather than 4: on a dense real
+	// change (461 lines, .ts/.svelte) a 4-file chunk pushed the javascript
+	// lens to 180s; 3 keeps it clear.
+	DefaultChunkMaxFiles = 3
 )
 
 // BudgetResult is the outcome of applying the size budget.

@@ -24,10 +24,9 @@ const (
 	DefaultFailOn   = "high"
 
 	// DefaultMaxInvocations caps the chunk x lens fan-out so a huge
-	// chunked diff cannot launch unbounded agent processes. Sized to cover
-	// a ~12-file change at DefaultChunkMaxFiles=4 (3 chunks x 3 lenses) with
-	// headroom; larger diffs are truncated with a loud partial-coverage
-	// notice.
+	// chunked diff cannot launch unbounded agent processes. 36 covers a
+	// ~36-file change at DefaultChunkMaxFiles=3 (12 chunks x 3 lenses);
+	// larger diffs are truncated with a loud partial-coverage notice.
 	DefaultMaxInvocations = 36
 
 	// DefaultConcurrency bounds how many agent invocations run at once

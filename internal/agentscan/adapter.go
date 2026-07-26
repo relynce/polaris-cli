@@ -42,9 +42,12 @@ type InvokeResult struct {
 const (
 	// DefaultModel is the pinned model alias, sonnet-class per spec.
 	DefaultModel = "sonnet"
-	// DefaultTimeout is the per-lens invocation timeout (spec: Gate
-	// policy, "per-lens timeout default 180 s").
-	DefaultTimeout = 180 * time.Second
+	// DefaultTimeout is the per-lens invocation timeout. Raised from 180s:
+	// on a dense real change a working lens ran 137-180s and occasionally
+	// tipped over 180, failing OPEN and masking a real HIGH. The extra
+	// headroom lets a slow-but-completing lens finish (with chunking keeping
+	// the common case well under it) instead of hiding findings.
+	DefaultTimeout = 240 * time.Second
 	// DefaultClaudeBinary is the claude preset's executable name,
 	// resolved via PATH.
 	DefaultClaudeBinary = "claude"

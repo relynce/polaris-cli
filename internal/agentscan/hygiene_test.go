@@ -340,7 +340,7 @@ func TestApplyBudgetDefaults(t *testing.T) {
 	if DefaultSoftLimitLines != 1500 || DefaultHardLimitLines != 6000 {
 		t.Fatalf("default limits changed: soft=%d hard=%d", DefaultSoftLimitLines, DefaultHardLimitLines)
 	}
-	if DefaultChunkMaxFiles != 4 {
+	if DefaultChunkMaxFiles != 3 {
 		t.Fatalf("default chunk-max-files changed: %d", DefaultChunkMaxFiles)
 	}
 	cs := ChangeSet{
