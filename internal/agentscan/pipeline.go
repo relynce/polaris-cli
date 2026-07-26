@@ -24,15 +24,19 @@ const (
 	DefaultFailOn   = "high"
 
 	// DefaultMaxInvocations caps the chunk x lens fan-out so a huge
-	// chunked diff cannot launch unbounded agent processes.
-	DefaultMaxInvocations = 12
+	// chunked diff cannot launch unbounded agent processes. Sized to cover
+	// a ~12-file change at DefaultChunkMaxFiles=4 (3 chunks x 3 lenses) with
+	// headroom; larger diffs are truncated with a loud partial-coverage
+	// notice.
+	DefaultMaxInvocations = 36
 
 	// DefaultConcurrency bounds how many agent invocations run at once
-	// (po-ksrjz). Unbounded parallelism let a large diff launch up to
-	// MaxInvocations claude processes simultaneously; they contend for the
-	// API and rate-limit each other into per-lens timeouts. 4 keeps the
-	// common 3-lens case fully parallel while capping larger diffs.
-	DefaultConcurrency = 4
+	// (po-ksrjz). The lens retry with fast-fail backoff now absorbs the
+	// transient API 500s that unbounded parallelism used to turn into
+	// per-lens timeouts, so a higher default runs a chunked diff's
+	// invocations mostly in one wave — measured ~15% faster wall clock than
+	// concurrency 4 with no new API errors. Tunable via config.
+	DefaultConcurrency = 8
 
 	// DefaultMaxPrePushRefs caps how many pushed refs a single pre-push
 	// invocation scans, so `git push --all` cannot fan out unbounded
@@ -72,6 +76,7 @@ type PipelineConfig struct {
 	StrictErrors        bool   // infra errors fail the gate closed instead of open
 	SoftLimit           int    // diff lines before chunking (0 = DefaultSoftLimitLines)
 	HardLimit           int    // diff lines before file-list degrade (0 = DefaultHardLimitLines)
+	ChunkMaxFiles       int    // max changed files per chunk (0 = DefaultChunkMaxFiles)
 	ExtraGeneratedGlobs []string
 	BudgetWarnUSD       float64 // warn when total cost exceeds this (0 = no warning)
 	MaxInvocations      int     // chunk x lens cap (0 = DefaultMaxInvocations)
@@ -442,7 +447,7 @@ func RunPipeline(ctx context.Context, cfg PipelineConfig, cs ChangeSet) (Pipelin
 	}
 
 	// 5. Size budget: chunking or file-list degrade, with notices.
-	budget := ApplyBudget(filtered, cfg.SoftLimit, cfg.HardLimit)
+	budget := ApplyBudget(filtered, cfg.SoftLimit, cfg.HardLimit, cfg.ChunkMaxFiles)
 	res.Notices = append(res.Notices, budget.Notices...)
 	res.FileListMode = budget.FileListMode
 	chunks := budget.Chunks

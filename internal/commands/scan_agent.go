@@ -69,6 +69,7 @@ type agentScanSettings struct {
 	MaxInvocations int
 	MaxTurns       int    // agent tool-use loop cap (0 = uncapped)
 	Concurrency    int    // simultaneous agent invocations (0 = DefaultConcurrency)
+	ChunkMaxFiles  int    // max changed files per chunk (0 = DefaultChunkMaxFiles)
 	GateScope      string // new-code gating: "changed" (default) | "all"
 }
 
@@ -114,6 +115,7 @@ func resolveAgentScanSettings(a agentScanArgs, cfg *project.AgentScanConfig) (ag
 		Model:          agentscan.DefaultModel,
 		Timeout:        agentscan.DefaultTimeout,
 		MaxInvocations: agentscan.DefaultMaxInvocations,
+		ChunkMaxFiles:  agentscan.DefaultChunkMaxFiles,
 		GateScope:      agentscan.GateScopeChanged,
 	}
 	if cfg != nil {
@@ -162,6 +164,12 @@ func resolveAgentScanSettings(a agentScanArgs, cfg *project.AgentScanConfig) (ag
 				return s, fmt.Errorf("invalid scanner.agent.concurrency %d (must be positive)", cfg.Concurrency)
 			}
 			s.Concurrency = cfg.Concurrency
+		}
+		if cfg.ChunkMaxFiles != 0 {
+			if cfg.ChunkMaxFiles < 0 {
+				return s, fmt.Errorf("invalid scanner.agent.chunk_max_files %d (must be positive)", cfg.ChunkMaxFiles)
+			}
+			s.ChunkMaxFiles = cfg.ChunkMaxFiles
 		}
 		if cfg.GateScope != "" {
 			gs := strings.ToLower(strings.TrimSpace(cfg.GateScope))
@@ -297,6 +305,7 @@ func runAgentScan(a agentScanArgs) {
 		BudgetWarnUSD:       settings.BudgetWarnUSD,
 		MaxInvocations:      settings.MaxInvocations,
 		Concurrency:         settings.Concurrency,
+		ChunkMaxFiles:       settings.ChunkMaxFiles,
 		LensBudget:          settings.Timeout, // global per-lens budget shared across retries
 		GateScope:           settings.GateScope,
 		Waivers:             waivers,
