@@ -156,4 +156,20 @@ func submitAgentScan(res agentscan.PipelineResult, flagService, absTarget, mode,
 	}
 	fmt.Printf("Submitted %d agent finding(s) to Revelara (scan %s, service %s)\n",
 		len(res.Findings), resp.ScanID, resp.Service)
+
+	// po-gli2z: surface server-side warnings and partial acceptance
+	// instead of swallowing them; a green submit line with silently
+	// rejected findings is exactly the failure mode this issue fixed.
+	if resp.Summary.Total > 0 && resp.Summary.Total < len(res.Findings) {
+		fmt.Fprintf(os.Stderr, "warning: server processed %d of %d submitted finding(s)\n",
+			resp.Summary.Total, len(res.Findings))
+	}
+	for _, w := range resp.Warnings {
+		fmt.Fprintf(os.Stderr, "warning: server: %s\n", w)
+	}
+	for _, f := range resp.Findings {
+		for _, w := range f.Warnings {
+			fmt.Fprintf(os.Stderr, "warning: %s: %s\n", f.RiskCode, w)
+		}
+	}
 }
