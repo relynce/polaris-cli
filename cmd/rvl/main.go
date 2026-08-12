@@ -188,6 +188,10 @@ func main() {
 		commands.CmdIncident(os.Args[2:])
 	case "evidence":
 		commands.CmdEvidence(os.Args[2:])
+	case "feedback":
+		commands.CmdFeedback(os.Args[2:], version, "feedback")
+	case "bugreport":
+		commands.CmdFeedback(os.Args[2:], version, "bug")
 	case "config":
 		commands.CmdConfig(os.Args[2:])
 	case "commands":
@@ -232,6 +236,8 @@ Commands:
   knowledge          Query organizational knowledge base (facts, procedures, patterns)
   incident           Search indexed incident postmortems
   evidence           Manage control evidence (submit, list, verify)
+  feedback           Send feedback to the Revelara team
+  bugreport          Send a bug report to the Revelara team
   stpa               STPA-inspired safety analysis tools (list-ucas)
   commands           List available skills and agents from the API
   plugin             Manage editor plugins (install, update, list, remove)
