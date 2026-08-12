@@ -63,7 +63,7 @@ _rvl() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    commands="init login logout status scan review risk control report knowledge incident evidence stpa commands plugin completion config migrate version help"
+    commands="init login logout status scan review risk control report knowledge incident evidence feedback bugreport stpa commands plugin completion config migrate version help"
 
     case "${prev}" in
         rvl)
@@ -134,6 +134,8 @@ _rvl() {
         'knowledge:Query organizational knowledge base'
         'incident:Search indexed incident postmortems'
         'evidence:Manage control evidence'
+        'feedback:Send feedback to the Revelara team'
+        'bugreport:Send a bug report to the Revelara team'
         'stpa:STPA-inspired safety analysis tools'
         'commands:List available skills and agents'
         'plugin:Manage editor plugins'
@@ -205,6 +207,8 @@ complete -c rvl -n "__fish_use_subcommand" -a "report" -d "Generate a SOC 2 read
 complete -c rvl -n "__fish_use_subcommand" -a "knowledge" -d "Query organizational knowledge base"
 complete -c rvl -n "__fish_use_subcommand" -a "incident" -d "Search indexed incident postmortems"
 complete -c rvl -n "__fish_use_subcommand" -a "evidence" -d "Manage control evidence"
+complete -c rvl -n "__fish_use_subcommand" -a "feedback" -d "Send feedback to the Revelara team"
+complete -c rvl -n "__fish_use_subcommand" -a "bugreport" -d "Send a bug report to the Revelara team"
 complete -c rvl -n "__fish_use_subcommand" -a "stpa" -d "STPA-inspired safety analysis tools"
 complete -c rvl -n "__fish_use_subcommand" -a "commands" -d "List available skills and agents"
 complete -c rvl -n "__fish_use_subcommand" -a "plugin" -d "Manage editor plugins"
