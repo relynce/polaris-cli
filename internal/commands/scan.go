@@ -561,26 +561,6 @@ func CmdScan(args []string, version string) {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		// po-ta8wj.3: deduplicate cross-agent findings after merge.
-		// Round-trip via JSON so typed dedup works on the interface{} slice.
-		if len(scanReq.Findings) > 0 {
-			if rawData, mErr := json.Marshal(scanReq.Findings); mErr == nil {
-				var typed []scanner.ScanFinding
-				if uErr := json.Unmarshal(rawData, &typed); uErr == nil {
-					original := len(typed)
-					typed = scanner.DeduplicateFindings(typed)
-					if len(typed) < original {
-						fmt.Fprintf(os.Stderr, "scanner: deduplicated %d cross-agent duplicate(s)\n", original-len(typed))
-						if dedupData, mErr2 := json.Marshal(typed); mErr2 == nil {
-							var deduped []interface{}
-							if uErr2 := json.Unmarshal(dedupData, &deduped); uErr2 == nil {
-								scanReq.Findings = deduped
-							}
-						}
-					}
-				}
-			}
-		}
 	} else {
 		var inputData []byte
 		var err error
@@ -608,6 +588,37 @@ func CmdScan(args []string, version string) {
 				os.Exit(1)
 			}
 			scanReq.Findings = findings
+		}
+	}
+
+	// po-gli2z: validate and coerce finding fields client-side, replacing
+	// the transform step that used to live only in the scan skill prompt
+	// (polaris scan.md Step 4B) and was skippable by agents. Runs BEFORE
+	// dedup so the typed round-trip below never sees uncoercible shapes.
+	// See scan_normalize.go for the submit-plus-loud-warning design.
+	normReport := normalizeFindings(scanReq.Findings)
+	printNormalizationIssues(normReport)
+
+	if scanDir != "" {
+		// po-ta8wj.3: deduplicate cross-agent findings after merge.
+		// Round-trip via JSON so typed dedup works on the interface{} slice.
+		if len(scanReq.Findings) > 0 {
+			if rawData, mErr := json.Marshal(scanReq.Findings); mErr == nil {
+				var typed []scanner.ScanFinding
+				if uErr := json.Unmarshal(rawData, &typed); uErr == nil {
+					original := len(typed)
+					typed = scanner.DeduplicateFindings(typed)
+					if len(typed) < original {
+						fmt.Fprintf(os.Stderr, "scanner: deduplicated %d cross-agent duplicate(s)\n", original-len(typed))
+						if dedupData, mErr2 := json.Marshal(typed); mErr2 == nil {
+							var deduped []interface{}
+							if uErr2 := json.Unmarshal(dedupData, &deduped); uErr2 == nil {
+								scanReq.Findings = deduped
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 
@@ -687,6 +698,11 @@ func CmdScan(args []string, version string) {
 			"mode":      scanMode,
 			"scan_type": scanReq.ScanType,
 			"findings":  len(scanReq.Findings),
+			// po-gli2z: normalization counts so CI can assert no STPA loss.
+			"findings_with_stpa":    normReport.WithSTPA,
+			"findings_coerced":      normReport.CoercedFindings,
+			"findings_with_dropped": normReport.DroppedFindings,
+			"dropped_fields":        normReport.DroppedFields,
 		}
 		if targetDir != "" {
 			summary["target"] = targetDir
@@ -694,6 +710,7 @@ func CmdScan(args []string, version string) {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(summary)
+		printSTPALossBanner(normReport)
 		return
 	}
 
@@ -739,8 +756,19 @@ func CmdScan(args []string, version string) {
 		}
 	}
 
+	// po-gli2z: surface server-side partial acceptance instead of
+	// swallowing it. Summary.Total is the number of findings the server
+	// actually processed; fewer than submitted means data was rejected
+	// or ignored server-side.
+	if response.Summary.Total > 0 && response.Summary.Total < len(scanReq.Findings) {
+		fmt.Fprintf(os.Stderr, "Warning: server processed %d of %d submitted finding(s); the rest were rejected or ignored server-side.\n",
+			response.Summary.Total, len(scanReq.Findings))
+	}
+
 	// CI mode: output JSON and exit with code based on severity
 	if scanMode == "ci" {
+		fmt.Fprintf(os.Stderr, "Findings submitted: %s\n", normalizationSummary(normReport))
+		printSTPALossBanner(normReport)
 		printCIOutput(response)
 		return
 	}
@@ -759,6 +787,7 @@ func CmdScan(args []string, version string) {
 	fmt.Printf("Scan submitted successfully\n")
 	fmt.Printf("  Scan ID: %s\n", response.ScanID)
 	fmt.Printf("  Service: %s\n", response.Service)
+	fmt.Printf("  Submitted findings: %s\n", normalizationSummary(normReport))
 	fmt.Printf("  Total: %d (Created: %d, Updated: %d, Unchanged: %d)\n",
 		response.Summary.Total, response.Summary.Created,
 		response.Summary.Updated, response.Summary.Unchanged)
@@ -796,6 +825,12 @@ func CmdScan(args []string, version string) {
 			}
 			fmt.Printf("  [%s] %s: %s (score: %d, %s)\n",
 				status, f.RiskCode, f.Title, f.Score, f.Priority)
+			// po-gli2z: per-finding server warnings were previously
+			// parsed but never printed; a server-side partial accept of
+			// a finding's fields was invisible.
+			for _, w := range f.Warnings {
+				fmt.Fprintf(os.Stderr, "        warning [%s]: %s\n", f.RiskCode, w)
+			}
 		}
 		fmt.Println()
 	}
@@ -807,6 +842,8 @@ func CmdScan(args []string, version string) {
 		}
 		fmt.Fprintln(os.Stderr)
 	}
+
+	printSTPALossBanner(normReport)
 
 	fmt.Printf("View results: %s/risks\n", cfg.APIURL)
 }

@@ -10,6 +10,7 @@
 package scanner
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -55,6 +56,30 @@ type ScanFinding struct {
 	// (slug, evidence path, evidence line) tuple; populated by
 	// DeduplicateFindings.
 	CorroboratedByAgents []string `json:"corroborated_by_agents,omitempty"`
+
+	// Priority is the analysis-provided priority label (critical|high|
+	// medium|low). Carried so the --scan-dir dedup round-trip does not
+	// strip it (po-gli2z).
+	Priority string `json:"priority,omitempty"`
+
+	// STPA fields (po-gli2z). These back the product STPA view; before
+	// they existed here, any dedup pass round-tripping findings through
+	// this struct silently stripped them from the whole request. Enum
+	// values are validated client-side in commands/scan_normalize.go.
+	UCAType                string   `json:"uca_type,omitempty"`
+	CausalFactors          []string `json:"causal_factors,omitempty"`
+	LossScenario           string   `json:"loss_scenario,omitempty"`
+	LossCategory           string   `json:"loss_category,omitempty"`
+	EstimatedFixComplexity string   `json:"estimated_fix_complexity,omitempty"`
+	ConstraintType         string   `json:"constraint_type,omitempty"`
+
+	// Graph evidence fields (scan.md "Graph evidence fields"): opaque to
+	// the CLI, preserved as raw JSON so the dedup round-trip cannot lose
+	// them either.
+	ImpactChains           json.RawMessage `json:"impact_chains,omitempty"`
+	Mitigations            json.RawMessage `json:"mitigations,omitempty"`
+	ForesightDepth         json.RawMessage `json:"foresight_depth,omitempty"`
+	GraphAdjacentKnowledge json.RawMessage `json:"graph_adjacent_knowledge,omitempty"`
 }
 
 // ScanProvenance carries the provenance fields that influence the
