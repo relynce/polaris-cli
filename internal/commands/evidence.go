@@ -3,6 +3,7 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -26,6 +27,42 @@ type EvidenceItem struct {
 	CreatedAt       string  `json:"created_at"`
 	UpdatedAt       string  `json:"updated_at"`
 	OrganizationID  string  `json:"organization_id,omitempty"`
+	// po-9nxdr.2: evidence scope (team | service | global | unknown).
+	// Empty ScopeState means an older server that predates scoping.
+	ScopeState  string  `json:"scope_state,omitempty"`
+	TeamSlug    *string `json:"team_slug,omitempty"`
+	ServiceName *string `json:"service_name,omitempty"`
+}
+
+// validScopeState reports whether s is a known evidence scope state
+// (mirrors the server's EvidenceScopeState enum).
+func validScopeState(s string) bool {
+	switch s {
+	case "team", "service", "global", "unknown":
+		return true
+	}
+	return false
+}
+
+// evidenceScopeLabel renders an evidence record's scope for text output.
+// Global scope (the default) and pre-scoping servers render nothing;
+// grandfathered `unknown` rows are flagged for re-scoping.
+func evidenceScopeLabel(e EvidenceItem) string {
+	switch e.ScopeState {
+	case "unknown":
+		return "unknown scope (needs re-scoping)"
+	case "team", "service":
+		var parts []string
+		if e.TeamSlug != nil && *e.TeamSlug != "" {
+			parts = append(parts, "team="+*e.TeamSlug)
+		}
+		if e.ServiceName != nil && *e.ServiceName != "" {
+			parts = append(parts, "service="+*e.ServiceName)
+		}
+		return strings.Join(parts, " ")
+	default:
+		return ""
+	}
 }
 
 type ListEvidenceAPIResponse struct {
@@ -75,14 +112,20 @@ func printEvidenceUsage() {
 	fmt.Println("  --url=<url>            URL or identifier (optional)")
 	fmt.Println("  --description=<text>   Description (optional)")
 	fmt.Println("  --git-hash=<hash>      Git commit hash (auto-detected if not provided)")
+	fmt.Println("  --team=<slug>          Team slug the evidence is scoped to (who exercises the practice)")
+	fmt.Println("  --service=<name>       Service name the evidence covers; combinable with --team (AND)")
+	fmt.Println("                         Without --team/--service the evidence lands org-wide (global)")
 	fmt.Println("  --format=json          Output raw JSON response")
 	fmt.Println()
 	fmt.Println("List options:")
-	fmt.Println("  --control=<code>   Filter by control code")
-	fmt.Println("  --type=<type>      Filter by evidence type")
-	fmt.Println("  --status=<status>  Filter by status (not_configured, configured, sample, verified)")
-	fmt.Println("  --limit=<n>        Max records (default: 20)")
-	fmt.Println("  --format=json      Output raw JSON response")
+	fmt.Println("  --control=<code>       Filter by control code")
+	fmt.Println("  --type=<type>          Filter by evidence type")
+	fmt.Println("  --status=<status>      Filter by status (not_configured, configured, sample, verified)")
+	fmt.Println("  --team=<slug>          Filter to evidence scoped to this team")
+	fmt.Println("  --service=<name>       Filter to evidence covering this service")
+	fmt.Println("  --scope-state=<state>  Filter by scope state (team, service, global, unknown)")
+	fmt.Println("  --limit=<n>            Max records (default: 20)")
+	fmt.Println("  --format=json          Output raw JSON response")
 	fmt.Println()
 	fmt.Println("Verify usage:")
 	fmt.Println("  rvl evidence verify <evidence-id>")
@@ -90,7 +133,7 @@ func printEvidenceUsage() {
 }
 
 func cmdEvidenceSubmit(args []string) {
-	var controlCode, evidenceType, name, url, description, gitHash, format string
+	var controlCode, evidenceType, name, url, description, gitHash, team, service, format string
 	// po-i24do.11: accept both "--flag value" and "--flag=value".
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -115,6 +158,15 @@ func cmdEvidenceSubmit(args []string) {
 		case arg == "--git-hash" || strings.HasPrefix(arg, "--git-hash="):
 			v, i, err = cliutil.FlagValue(args, i, "--git-hash")
 			gitHash = v
+		// po-9nxdr.2: optional scope. --team and --service are combinable
+		// (AND): team = who exercises the practice, service = what it
+		// covers. Neither -> org-wide (global) evidence.
+		case arg == "--team" || strings.HasPrefix(arg, "--team="):
+			v, i, err = cliutil.FlagValue(args, i, "--team")
+			team = v
+		case arg == "--service" || strings.HasPrefix(arg, "--service="):
+			v, i, err = cliutil.FlagValue(args, i, "--service")
+			service = v
 		case arg == "--format" || strings.HasPrefix(arg, "--format="):
 			v, i, err = cliutil.FlagValue(args, i, "--format")
 			format = v
@@ -190,21 +242,14 @@ func cmdEvidenceSubmit(args []string) {
 		}
 	}
 
-	body := map[string]string{
-		"control_id":        control.ID,
-		"type":              evidenceType,
-		"name":              name,
-		"url_or_identifier": url,
-		"description":       description,
-	}
-	if gitHash != "" {
-		body["git_hash"] = gitHash
-	}
+	body := buildEvidenceSubmitBody(control.ID, evidenceType, name, url, description, gitHash, team, service)
 
 	bodyBytes, _ := json.Marshal(body)
 	apiURL := cfg.APIURL + "/api/v1/evidence"
 	resp, err := api.MakeAPIRequest(cfg, "POST", apiURL, bodyBytes)
 	if err != nil {
+		// po-9nxdr.2: an unknown --team/--service is a 400 whose message
+		// lists the org's known slugs/services; it passes through verbatim.
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -226,6 +271,11 @@ func cmdEvidenceSubmit(args []string) {
 	fmt.Printf("  Type:    %s\n", evidence.Type)
 	fmt.Printf("  Name:    %s\n", evidence.Name)
 	fmt.Printf("  Status:  %s\n", evidence.Status)
+	if scope := evidenceScopeLabel(evidence); scope != "" {
+		fmt.Printf("  Scope:   %s\n", scope)
+	} else if evidence.ScopeState == "global" {
+		fmt.Printf("  Scope:   org-wide (global)\n")
+	}
 	if url != "" {
 		fmt.Printf("  URL:     %s\n", url)
 	}
@@ -234,8 +284,32 @@ func cmdEvidenceSubmit(args []string) {
 	}
 }
 
+// buildEvidenceSubmitBody assembles the POST /api/v1/evidence body.
+// team/service are only sent when set so older servers (which reject
+// unknown fields loosely or ignore them) keep working for unscoped
+// submissions.
+func buildEvidenceSubmitBody(controlID, evidenceType, name, url, description, gitHash, team, service string) map[string]string {
+	body := map[string]string{
+		"control_id":        controlID,
+		"type":              evidenceType,
+		"name":              name,
+		"url_or_identifier": url,
+		"description":       description,
+	}
+	if gitHash != "" {
+		body["git_hash"] = gitHash
+	}
+	if team != "" {
+		body["team"] = team
+	}
+	if service != "" {
+		body["service"] = service
+	}
+	return body
+}
+
 func cmdEvidenceList(args []string) {
-	var controlCode, evidenceType, status, format string
+	var controlCode, evidenceType, status, team, service, scopeState, format string
 	limit := 20
 	// po-i24do.11: accept both "--flag value" and "--flag=value".
 	for i := 0; i < len(args); i++ {
@@ -252,6 +326,18 @@ func cmdEvidenceList(args []string) {
 		case arg == "--status" || strings.HasPrefix(arg, "--status="):
 			v, i, err = cliutil.FlagValue(args, i, "--status")
 			status = v
+		// po-9nxdr.2: scope filters mirroring the API params. team/service
+		// are literal matches on the scope columns; inherited/global
+		// aggregation lives on `rvl control show --team/--service`.
+		case arg == "--team" || strings.HasPrefix(arg, "--team="):
+			v, i, err = cliutil.FlagValue(args, i, "--team")
+			team = v
+		case arg == "--service" || strings.HasPrefix(arg, "--service="):
+			v, i, err = cliutil.FlagValue(args, i, "--service")
+			service = v
+		case arg == "--scope-state" || strings.HasPrefix(arg, "--scope-state="):
+			v, i, err = cliutil.FlagValue(args, i, "--scope-state")
+			scopeState = v
 		case arg == "--limit" || strings.HasPrefix(arg, "--limit="):
 			v, i, err = cliutil.FlagValue(args, i, "--limit")
 			if err == nil {
@@ -292,26 +378,27 @@ func cmdEvidenceList(args []string) {
 			os.Exit(cliutil.ExitUsage)
 		}
 	}
+	if scopeState != "" && !validScopeState(scopeState) {
+		fmt.Fprintf(os.Stderr, "Error: invalid --scope-state value %q; must be one of: team, service, global, unknown\n", scopeState)
+		os.Exit(cliutil.ExitUsage)
+	}
 
 	cfg := api.LoadAndResolveConfig()
-	apiURL := cfg.APIURL + "/api/v1/evidence?limit=" + fmt.Sprintf("%d", limit)
-	if evidenceType != "" {
-		apiURL += "&type=" + evidenceType
-	}
-	if status != "" {
-		apiURL += "&status=" + status
-	}
+	var controlID string
 	if controlCode != "" {
-		controlID, err := FindControlIDByCode(cfg, controlCode)
+		id, err := FindControlIDByCode(cfg, controlCode)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		apiURL += "&control_id=" + controlID
+		controlID = id
 	}
+	apiURL := buildEvidenceListURL(cfg.APIURL, limit, evidenceType, status, controlID, team, service, scopeState)
 
 	resp, err := api.MakeAPIRequest(cfg, "GET", apiURL, nil)
 	if err != nil {
+		// po-9nxdr.2: an unknown --team/--service is a 400 whose message
+		// lists the org's known slugs/services; it passes through verbatim.
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
@@ -348,10 +435,40 @@ func cmdEvidenceList(args []string) {
 			idStr = idStr[:8] + "..."
 		}
 		fmt.Printf("  %s %s [%s] %s%s\n", idStr, statusBadge, e.Type, e.Name, commitInfo)
+		if scope := evidenceScopeLabel(e); scope != "" {
+			fmt.Printf("    Scope: %s\n", scope)
+		}
 		if e.URLOrIdentifier != "" {
 			fmt.Printf("    URL: %s\n", e.URLOrIdentifier)
 		}
 	}
+}
+
+// buildEvidenceListURL assembles the GET /api/v1/evidence query. url.Values
+// encoding keeps service names with spaces (and any stray `&`/`%`) from
+// smuggling extra params (matches the po-2msnd controls fix).
+func buildEvidenceListURL(base string, limit int, evidenceType, status, controlID, team, service, scopeState string) string {
+	q := neturl.Values{}
+	q.Set("limit", strconv.Itoa(limit))
+	if evidenceType != "" {
+		q.Set("type", evidenceType)
+	}
+	if status != "" {
+		q.Set("status", status)
+	}
+	if controlID != "" {
+		q.Set("control_id", controlID)
+	}
+	if team != "" {
+		q.Set("team", team)
+	}
+	if service != "" {
+		q.Set("service", service)
+	}
+	if scopeState != "" {
+		q.Set("scope_state", scopeState)
+	}
+	return base + "/api/v1/evidence?" + q.Encode()
 }
 
 func cmdEvidenceVerify(args []string) {

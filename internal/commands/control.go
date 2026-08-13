@@ -3,6 +3,7 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strconv"
@@ -60,6 +61,98 @@ type ListControlsResponse struct {
 	Limit    int       `json:"limit"`
 }
 
+// ControlScopeStatus mirrors the server's apispec.ControlScopeStatusResponse
+// (po-9nxdr.2): the per-team breakdown plus the WORST-OF org rollup.
+// `unknown_evidence` counts grandfathered rows flagged for re-scoping;
+// they are never credited to any scope.
+type ControlScopeStatus struct {
+	ControlCode     string                   `json:"control_code"`
+	OrgStatus       string                   `json:"org_status"`
+	Teams           []ControlTeamScopeStatus `json:"teams"`
+	UnknownEvidence int                      `json:"unknown_evidence"`
+}
+
+// ControlTeamScopeStatus is one team's row in the scope-status breakdown.
+type ControlTeamScopeStatus struct {
+	TeamSlug          string `json:"team_slug"`
+	TeamName          string `json:"team_name"`
+	Status            string `json:"status"`
+	DirectEvidence    int    `json:"direct_evidence"`
+	InheritedEvidence int    `json:"inherited_evidence"`
+	GlobalEvidence    int    `json:"global_evidence"`
+}
+
+// fetchControlScopeStatus calls GET /api/v1/controls/by-code/{code}/scope-status
+// with optional team/service filters. Returns the parsed response plus the
+// raw body (for --format=json passthrough). An unknown team/service is a
+// 400 whose message lists the org's known slugs/services — MakeAPIRequest
+// surfaces that message verbatim, so callers must not swallow the error.
+func fetchControlScopeStatus(cfg *config.Config, code, team, service string) (*ControlScopeStatus, []byte, error) {
+	q := url.Values{}
+	if team != "" {
+		q.Set("team", team)
+	}
+	if service != "" {
+		q.Set("service", service)
+	}
+	endpoint := cfg.APIURL + "/api/v1/controls/by-code/" + url.PathEscape(code) + "/scope-status"
+	if len(q) > 0 {
+		endpoint += "?" + q.Encode()
+	}
+	resp, err := api.MakeAPIRequest(cfg, "GET", endpoint, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	var st ControlScopeStatus
+	if err := json.Unmarshal(resp, &st); err != nil {
+		return nil, nil, fmt.Errorf("parse scope-status response: %w", err)
+	}
+	return &st, resp, nil
+}
+
+// renderControlScopeStatus prints the per-team scope breakdown and the
+// worst-of org rollup.
+func renderControlScopeStatus(w io.Writer, st *ControlScopeStatus) {
+	fmt.Fprintln(w, "Scope Status (per team):")
+	if len(st.Teams) == 0 {
+		fmt.Fprintln(w, "  (no teams in scope — the org has no teams yet, or the filter matched none)")
+	} else {
+		fmt.Fprintf(w, "  %-20s %-10s %7s %10s %7s\n", "TEAM", "STATUS", "DIRECT", "INHERITED", "GLOBAL")
+		for _, t := range st.Teams {
+			fmt.Fprintf(w, "  %-20s %-10s %7d %10d %7d\n",
+				t.TeamSlug, t.Status, t.DirectEvidence, t.InheritedEvidence, t.GlobalEvidence)
+		}
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "Org status (worst-of): %s\n", st.OrgStatus)
+	if st.UnknownEvidence > 0 {
+		fmt.Fprintf(w, "Note: %d evidence record(s) have unknown scope (grandfathered; re-scope them — they are never credited to any team).\n",
+			st.UnknownEvidence)
+	}
+}
+
+// orgScopeSummaryLine returns the one-line org scope summary shown on a
+// plain `rvl control show` when the control has scoped (non-global)
+// evidence, or "" when everything is org-wide and there is nothing scoped
+// to surface.
+func orgScopeSummaryLine(st *ControlScopeStatus) string {
+	if st == nil {
+		return ""
+	}
+	scoped := st.UnknownEvidence > 0
+	for _, t := range st.Teams {
+		if t.DirectEvidence > 0 || t.InheritedEvidence > 0 {
+			scoped = true
+			break
+		}
+	}
+	if !scoped {
+		return ""
+	}
+	return fmt.Sprintf("Org scope status: %s (worst-of across %d teams; %d unknown-scope records; see --team/--service)",
+		st.OrgStatus, len(st.Teams), st.UnknownEvidence)
+}
+
 // CmdControl dispatches control subcommands
 func CmdControl(args []string) {
 	if cliutil.WantsHelp(args) {
@@ -99,6 +192,8 @@ List Options:
   --format=json     Emit machine-parseable JSON for slash-command pipelines
 
 Show Options:
+  --team=<slug>     Show the scope-status breakdown filtered to this team
+  --service=<name>  Show the scope-status breakdown filtered to this service
   --format=json     Emit the raw server JSON
 
 Examples:
@@ -106,6 +201,8 @@ Examples:
   rvl control list --category=fault_tolerance
   rvl control list --format=json | jq '.controls[].control_code'
   rvl control show RC-018
+  rvl control show RC-018 --team=payments
+  rvl control show RC-018 --team=platform --service=shared-postgres
   rvl control show RC-018 --format=json`)
 }
 
@@ -226,9 +323,11 @@ func cmdControlList(args []string) {
 
 func cmdControlShow(args []string) {
 	// po-81w0v: --format=json on show too.
+	// po-9nxdr.2: --team/--service render the scope-status breakdown.
 	var (
-		positional []string
-		format     string
+		positional    []string
+		format        string
+		team, service string
 	)
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -238,6 +337,20 @@ func cmdControlShow(args []string) {
 		case arg == "--format":
 			if i+1 < len(args) {
 				format = args[i+1]
+				i++
+			}
+		case strings.HasPrefix(arg, "--team="):
+			team = strings.TrimPrefix(arg, "--team=")
+		case arg == "--team":
+			if i+1 < len(args) {
+				team = args[i+1]
+				i++
+			}
+		case strings.HasPrefix(arg, "--service="):
+			service = strings.TrimPrefix(arg, "--service=")
+		case arg == "--service":
+			if i+1 < len(args) {
+				service = args[i+1]
 				i++
 			}
 		case strings.HasPrefix(arg, "-"):
@@ -273,7 +386,32 @@ func cmdControlShow(args []string) {
 		os.Exit(1)
 	}
 
+	// po-9nxdr.2: with scope flags the scope-status fetch is part of what
+	// the user asked for, so its errors (including the 400 that lists known
+	// team slugs / services) are fatal and surfaced verbatim.
+	var (
+		scopeStatus *ControlScopeStatus
+		scopeRaw    []byte
+	)
+	if team != "" || service != "" {
+		scopeStatus, scopeRaw, err = fetchControlScopeStatus(cfg, controlCode, team, service)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
 	if format == "json" {
+		if scopeRaw != nil {
+			// Combined envelope so jq pipelines get both bodies in one
+			// document: {"control": <control>, "scope_status": <breakdown>}.
+			combined, _ := json.Marshal(map[string]json.RawMessage{
+				"control":      json.RawMessage(resp),
+				"scope_status": json.RawMessage(scopeRaw),
+			})
+			fmt.Println(string(combined))
+			return
+		}
 		fmt.Println(string(resp))
 		return
 	}
@@ -323,6 +461,23 @@ func cmdControlShow(args []string) {
 			codes = append(codes, r.RiskCode)
 		}
 		fmt.Printf("Related Risks: %s\n", strings.Join(codes, ", "))
+	}
+
+	// po-9nxdr.2: scope-aware status. With --team/--service, render the
+	// full per-team breakdown (already fetched above, errors fatal).
+	// Without flags, a best-effort unfiltered fetch adds a one-line org
+	// scope summary when the control has scoped evidence; older servers
+	// without the endpoint degrade silently to the classic output.
+	if scopeStatus != nil {
+		fmt.Println()
+		renderControlScopeStatus(os.Stdout, scopeStatus)
+		return
+	}
+	if st, _, serr := fetchControlScopeStatus(cfg, controlCode, "", ""); serr == nil {
+		if line := orgScopeSummaryLine(st); line != "" {
+			fmt.Println()
+			fmt.Println(line)
+		}
 	}
 }
 
