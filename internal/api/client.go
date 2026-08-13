@@ -266,6 +266,50 @@ func FetchServerPluginVersion(cfg *config.Config) string {
 	return result.Version
 }
 
+// FetchTeamSlugs returns the org's known team slugs from
+// GET /api/v1/teams/slugs (po-77b6w.1), consumed by the pre-submit
+// did-you-mean. Best-effort by design: returns nil on any failure
+// (unreachable server, old server without the endpoint, auth problem) so
+// callers skip the check instead of blocking a submission — agents must
+// be able to run headless. A nil result means "unknown", an empty non-nil
+// slice means "the org has no teams yet".
+func FetchTeamSlugs(cfg *config.Config) []string {
+	if cfg == nil || cfg.APIKey == "" || cfg.APIURL == "" {
+		return nil
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest("GET", cfg.APIURL+"/api/v1/teams/slugs", nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	if cfg.ResolvedOrgID != "" {
+		req.Header.Set("X-Organization-ID", cfg.ResolvedOrgID)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil
+	}
+
+	var result struct {
+		Slugs []string `json:"slugs"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil
+	}
+	if result.Slugs == nil {
+		return []string{}
+	}
+	return result.Slugs
+}
+
 // PostOnboardingMilestone records an onboarding milestone via the Polaris API.
 // This is fire-and-forget: errors are silently discarded so callers are never
 // blocked or shown a failure on behalf of a telemetry-style call.

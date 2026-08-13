@@ -113,7 +113,7 @@ func likelihoodImpactForSeverity(severity string) (string, string) {
 // The service and business criticality both come from the target's
 // .revelara.yaml (business criticality feeds the Path 5 multiplier the
 // same way the local scan supplies it, scan.go:748-749).
-func submitAgentScan(res agentscan.PipelineResult, flagService, absTarget, mode, timeoutFlag string) {
+func submitAgentScan(res agentscan.PipelineResult, flagService, flagTeam, absTarget, mode, timeoutFlag string) {
 	projectCfg := project.LoadProjectConfigFrom(absTarget)
 	service := flagService
 	if projectCfg != nil && projectCfg.Project != "" {
@@ -147,6 +147,15 @@ func submitAgentScan(res agentscan.PipelineResult, flagService, absTarget, mode,
 			scanReq.BusinessCriticality = &crit
 		}
 	}
+
+	// po-77b6w.1: carry team ownership; --team overrides .revelara.yaml.
+	// Same pre-submit did-you-mean as the plain scan path (loud,
+	// non-blocking; a slug-lookup failure skips the check).
+	applyTeamAssignments(&scanReq, projectCfg, flagTeam)
+	if scanReq.Team != "" || len(scanReq.ComponentTeams) > 0 {
+		warnUnknownTeams(os.Stderr, api.FetchTeamSlugs(apiCfg), &scanReq)
+	}
+
 	resp, err := submitScan(apiCfg, &scanReq, resolveScanTimeout(timeoutFlag))
 	if err != nil {
 		// Observability only: a submit failure must not change the gate

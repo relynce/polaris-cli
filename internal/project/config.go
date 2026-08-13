@@ -12,10 +12,16 @@ import (
 
 // ProjectConfig represents the .revelara.yaml project configuration file
 type ProjectConfig struct {
-	Project     string             `yaml:"project"`
-	Criticality string             `yaml:"criticality,omitempty"`
-	Components  []ProjectComponent `yaml:"components"`
-	Scanner     *ScannerConfig     `yaml:"scanner,omitempty"`
+	Project     string `yaml:"project"`
+	Criticality string `yaml:"criticality,omitempty"`
+	// Team is the repo-level owning team (po-77b6w.1, org-ownership spec
+	// Decision 1: ownership is declared in-repo, and only in-repo). Carried
+	// on scan submissions; the platform creates the team on first sight and
+	// slugifies server-side. Per-component ownership goes on
+	// ProjectComponent.Team. `rvl scan --team=<slug>` overrides both.
+	Team       string             `yaml:"team,omitempty"`
+	Components []ProjectComponent `yaml:"components"`
+	Scanner    *ScannerConfig     `yaml:"scanner,omitempty"`
 }
 
 // ScannerConfig is the optional .revelara.yaml `scanner` section consumed
@@ -133,6 +139,9 @@ func (c *ProjectConfig) CriticalityScore() float64 {
 type ProjectComponent struct {
 	Name string `yaml:"name"`
 	Path string `yaml:"path"`
+	// Team is the component-level owning team; overrides the repo-level
+	// ProjectConfig.Team for this component (po-77b6w.1).
+	Team string `yaml:"team,omitempty"`
 }
 
 // LoadProjectConfigFrom reads .revelara.yaml from the specified directory's git root.
@@ -206,6 +215,11 @@ func WriteProjectConfig(path string, cfg *ProjectConfig) error {
 		return err
 	}
 
-	header := "# Revelara project configuration\n# Used by /rvl:scan and reliability-review skills for consistent service naming\n"
+	header := "# Revelara project configuration\n" +
+		"# Used by /rvl:scan and reliability-review skills for consistent service naming\n" +
+		"#\n" +
+		"# Optional: declare the owning team (repo-level default). Each component\n" +
+		"# may also set its own team: to override it. Example:\n" +
+		"#   team: platform\n"
 	return os.WriteFile(path, []byte(header+string(data)), 0644)
 }
