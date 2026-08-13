@@ -51,6 +51,7 @@ type agentScanArgs struct {
 	format         string
 	submit         bool   // po-66evv.11: opt-in POST to the risks scan endpoint
 	service        string // service name for submission (or from .revelara.yaml)
+	team           string // po-77b6w.1: whole-submission team override (--team)
 	timeout        string // submission HTTP timeout override (e.g. 90s)
 }
 
@@ -396,7 +397,7 @@ func runOnePipeline(ctx context.Context, cfg agentscan.PipelineConfig, cs agents
 	// gate decision and never changes the exit code; a submission failure
 	// is a warning.
 	if a.submit && !result.Skipped {
-		submitAgentScan(result, a.service, absTarget, settings.Mode, a.timeout)
+		submitAgentScan(result, a.service, a.team, absTarget, settings.Mode, a.timeout)
 	}
 
 	if strings.EqualFold(a.format, "json") {

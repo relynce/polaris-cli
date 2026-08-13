@@ -141,9 +141,9 @@ func TestSubmitAgentScanGuards(t *testing.T) {
 	// Empty service (no flag, temp dir has no .revelara.yaml): returns
 	// without calling api config / network.
 	dir := t.TempDir()
-	submitAgentScan(agentscan.PipelineResult{Findings: []agentscan.Finding{{Rule: "r"}}}, "", dir, "enforce", "")
+	submitAgentScan(agentscan.PipelineResult{Findings: []agentscan.Finding{{Rule: "r"}}}, "", "", dir, "enforce", "")
 	// No findings: returns even with a service.
-	submitAgentScan(agentscan.PipelineResult{}, "svc", dir, "enforce", "")
+	submitAgentScan(agentscan.PipelineResult{}, "svc", "", dir, "enforce", "")
 }
 
 // TestMapAgentFindingsSeverityAxes locks the severity->axes mapping that

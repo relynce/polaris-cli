@@ -66,6 +66,18 @@ type ScanRequest struct {
 	// scan-parts, same metadata) reuses the server's cached response
 	// instead of re-running every side effect.
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
+
+	// po-77b6w.1: in-repo team ownership (org-ownership spec Decision 1).
+	// Wire contract shared with polaris internal/api/risk_handlers.go
+	// (ScanRequest): Team is the repo-level owning team from .revelara.yaml
+	// `team:` or the --team override; TeamSource is "override" when --team
+	// was used (server defaults to "scan" when omitted); ComponentTeams
+	// maps component name -> team for per-component `team:` declarations.
+	// The server slugifies and creates teams on first sight; bindings are
+	// latest-submission-wins.
+	Team           string            `json:"team,omitempty"`
+	TeamSource     string            `json:"team_source,omitempty"`
+	ComponentTeams map[string]string `json:"component_teams,omitempty"`
 }
 
 // ServiceToleranceConfig mirrors polaris-side ServiceToleranceConfig
@@ -238,6 +250,9 @@ Usage:
 
 Common Flags:
   --service, -s <name>   Service name (or auto-resolved from .revelara.yaml)
+  --team <slug>          Owning team for the whole submission (overrides
+                         .revelara.yaml team: values; creates the team on
+                         first sight)
   --target, -t <path>    Project directory (default: cwd)
   --stdin                Read findings JSON from stdin
   --file, -f <path>      Read findings from file
@@ -306,6 +321,7 @@ func CmdScan(args []string, version string) {
 	}
 
 	var service string
+	var teamFlag string // po-77b6w.1: whole-submission team override
 	var inputFile string
 	var csFile string
 	var useStdin bool
@@ -344,6 +360,13 @@ func CmdScan(args []string, version string) {
 			}
 			i++
 			service = args[i]
+		case "--team":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "Error: --team requires a value")
+				os.Exit(cliutil.ExitUsage)
+			}
+			i++
+			teamFlag = args[i]
 		case "--target", "-t":
 			if i+1 >= len(args) {
 				fmt.Fprintln(os.Stderr, "Error: --target requires a value")
@@ -458,7 +481,9 @@ func CmdScan(args []string, version string) {
 			i++
 			timeoutFlag = args[i]
 		default:
-			if strings.HasPrefix(args[i], "--target=") {
+			if strings.HasPrefix(args[i], "--team=") {
+				teamFlag = strings.TrimPrefix(args[i], "--team=")
+			} else if strings.HasPrefix(args[i], "--target=") {
 				targetDir = strings.TrimPrefix(args[i], "--target=")
 			} else if strings.HasPrefix(args[i], "--scan-dir=") {
 				scanDir = strings.TrimPrefix(args[i], "--scan-dir=")
@@ -491,6 +516,13 @@ func CmdScan(args []string, version string) {
 		}
 	}
 
+	// po-77b6w.1: validate the override early; a value that slugifies to
+	// nothing usable would be silently dropped server-side.
+	if teamFlag != "" && slugifyTeamPreview(teamFlag) == "" {
+		fmt.Fprintf(os.Stderr, "Error: --team %q is not a usable team name (slugifies to nothing)\n", teamFlag)
+		os.Exit(cliutil.ExitUsage)
+	}
+
 	// po-66evv.5: --agent selects the change-scoped agent scan.
 	if agentMode {
 		runAgentScan(agentScanArgs{
@@ -508,6 +540,7 @@ func CmdScan(args []string, version string) {
 			format:         format,
 			submit:         submit,
 			service:        service,
+			team:           teamFlag,
 			timeout:        timeoutFlag,
 		})
 		return
@@ -656,7 +689,8 @@ func CmdScan(args []string, version string) {
 	}
 	scanReq.Metadata.ScannerID = "rely-cli-" + version
 
-	if projectCfg := project.LoadProjectConfigFrom(targetDir); projectCfg != nil {
+	projectCfg := project.LoadProjectConfigFrom(targetDir)
+	if projectCfg != nil {
 		if len(projectCfg.Components) > 0 {
 			project.MapFindingsToComponents(scanReq.Findings, projectCfg)
 		}
@@ -664,6 +698,11 @@ func CmdScan(args []string, version string) {
 			scanReq.BusinessCriticality = &crit
 		}
 	}
+
+	// po-77b6w.1: carry team ownership on the submission. --team overrides
+	// the whole submission; otherwise .revelara.yaml `team:` (repo default)
+	// and per-component `team:` entries apply.
+	applyTeamAssignments(&scanReq, projectCfg, teamFlag)
 
 	// Resolve scan mode: --ci > --auto-infer > --review > default (review if TTY)
 	scanMode := "review" // default
@@ -707,6 +746,9 @@ func CmdScan(args []string, version string) {
 		if targetDir != "" {
 			summary["target"] = targetDir
 		}
+		if scanReq.Team != "" {
+			summary["team"] = scanReq.Team
+		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(summary)
@@ -721,6 +763,13 @@ func CmdScan(args []string, version string) {
 	if missing := countFindingsWithoutComponent(scanReq.Findings); missing > 0 {
 		fmt.Fprintf(os.Stderr, "Warning: %d/%d findings have no `component` or `linked_services` and will be attributed to the bare service label %q.\n",
 			missing, len(scanReq.Findings), scanReq.Service)
+	}
+
+	// po-77b6w.1: pre-submit did-you-mean against the org's known team
+	// slugs (hygiene layer 2). Loud, never blocking: a fetch failure skips
+	// the check and an unknown team still submits (create-on-first-sight).
+	if scanReq.Team != "" || len(scanReq.ComponentTeams) > 0 {
+		warnUnknownTeams(os.Stderr, api.FetchTeamSlugs(cfg), &scanReq)
 	}
 
 	response, err := submitScan(cfg, &scanReq, resolveScanTimeout(timeoutFlag))

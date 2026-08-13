@@ -13,7 +13,7 @@ The file spans two maturity tiers. Know which one you are configuring:
 
 | Tier | Fields | Consumed by |
 |------|--------|-------------|
-| **Stable** | `project`, `criticality`, `components` (top level) | `rvl scan`, `rvl review`, `rvl init`, and the `/rvl:*` skills |
+| **Stable** | `project`, `criticality`, `team`, `components` (top level) | `rvl scan`, `rvl review`, `rvl init`, and the `/rvl:*` skills |
 | **Beta** | the `scanner:` section (`scanner.base_ref`, `scanner.agent`, `scanner.waivers`) | `rvl scan --agent` only |
 
 The top-level identity fields are safe to rely on. The `scanner:` section
@@ -54,14 +54,20 @@ project: my-service
 # Default: unset (treated as no boost)
 criticality: customer-facing
 
+# Owning team (repo-level default). Carried on scan submissions; the
+# platform slugifies it and creates the team on first sight. Optional.
+team: checkout
+
 # Components map file paths to sub-service names. A finding's evidence
 # path is matched against these (longest-prefix wins) to set its
-# linked_services as "<project>/<component>".
+# linked_services as "<project>/<component>". Each component may set its
+# own team: to override the repo-level default.
 components:
   - name: api
     path: cmd/server/
   - name: worker
     path: cmd/worker/
+    team: payments
   - name: frontend
     path: frontend/src/
 ```
@@ -93,8 +99,21 @@ submit. Any unrecognized or empty value scores 0.0 (no boost).
 
 On submit, a score greater than 0 is sent as `business_criticality`.
 
+## `team`
+- **Type:** string
+- **Default:** unset
+
+The owning team for this repo (repo-level default). On submit it is
+carried as `team` on the scan request; the platform slugifies it
+(lowercase, trim, whitespace/underscores to hyphens) and creates the team
+on first sight. The repo/component-to-team registry is simply the latest
+submission. `rvl scan --team=<slug>` overrides the whole submission
+(including per-component teams) — the bootstrap path for engineers
+scanning repos they cannot commit to. Before submit, unknown team names
+get a loud, non-blocking did-you-mean against the org's known slugs.
+
 ## `components`
-- **Type:** list of `{ name, path }`
+- **Type:** list of `{ name, path, team? }`
 - **Default:** empty
 - **Set by:** `rvl init` (auto-detected)
 
@@ -109,6 +128,7 @@ set by a skill, are left untouched.
 |-------|------|-------|
 | `name` | string | Component / sub-service name |
 | `path` | string | Path prefix (relative to git root) |
+| `team` | string | Optional owning team; overrides the top-level `team` for this component |
 
 ## Precedence: service name
 
