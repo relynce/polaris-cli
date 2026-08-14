@@ -180,6 +180,13 @@ type ScanResponse struct {
 	// over org defaults. po-qs96.4 reads this for the PR sticky comment
 	// budget math. Always populated for scan submissions.
 	EffectiveTolerance *EffectiveTolerance `json:"effective_tolerance,omitempty"`
+
+	// po-72d5d: true when polaris replayed a previously-processed
+	// response because this submission's idempotency_key matched a recent
+	// scan. Nothing in Findings was created or updated by this run, so the
+	// output must not re-announce those risks as "[NEW]". Servers that
+	// predate the field omit it; false is the pre-existing behavior.
+	Cached bool `json:"cached,omitempty"`
 }
 
 // EffectiveTolerance is the resolved tolerance config returned by Polaris
@@ -814,9 +821,13 @@ func CmdScan(args []string, version string) {
 			response.Summary.Total, len(scanReq.Findings))
 	}
 
-	// CI mode: output JSON and exit with code based on severity
+	// CI mode: output JSON and exit with code based on severity.
+	// po-72d5d: stdout stays byte-compatible for existing parsers (the
+	// `cached` field simply rides along in the marshalled body); the
+	// human-facing note goes to stderr.
 	if scanMode == "ci" {
 		fmt.Fprintf(os.Stderr, "Findings submitted: %s\n", normalizationSummary(normReport))
+		noteCachedScan(os.Stderr, response)
 		printSTPALossBanner(normReport)
 		printCIOutput(response)
 		return
@@ -833,7 +844,7 @@ func CmdScan(args []string, version string) {
 	}
 
 	// Standard output (review-confirmed or auto mode)
-	fmt.Printf("Scan submitted successfully\n")
+	fmt.Printf("%s\n", scanSubmitHeadline(response.Cached))
 	fmt.Printf("  Scan ID: %s\n", response.ScanID)
 	fmt.Printf("  Service: %s\n", response.Service)
 	fmt.Printf("  Submitted findings: %s\n", normalizationSummary(normReport))
@@ -860,29 +871,7 @@ func CmdScan(args []string, version string) {
 	}
 	fmt.Println()
 
-	if len(response.Findings) > 0 {
-		fmt.Println("Findings:")
-		for _, f := range response.Findings {
-			var status string
-			switch f.Status {
-			case "created":
-				status = "NEW"
-			case "updated":
-				status = "UPD"
-			default:
-				status = "---"
-			}
-			fmt.Printf("  [%s] %s: %s (score: %d, %s)\n",
-				status, f.RiskCode, f.Title, f.Score, f.Priority)
-			// po-gli2z: per-finding server warnings were previously
-			// parsed but never printed; a server-side partial accept of
-			// a finding's fields was invisible.
-			for _, w := range f.Warnings {
-				fmt.Fprintf(os.Stderr, "        warning [%s]: %s\n", f.RiskCode, w)
-			}
-		}
-		fmt.Println()
-	}
+	printScanFindings(os.Stdout, os.Stderr, response)
 
 	if len(response.Warnings) > 0 {
 		fmt.Fprintf(os.Stderr, "Warnings:\n")

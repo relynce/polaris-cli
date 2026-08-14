@@ -166,6 +166,11 @@ func submitAgentScan(res agentscan.PipelineResult, flagService, flagTeam, absTar
 	fmt.Printf("Submitted %d agent finding(s) to Revelara (scan %s, service %s)\n",
 		len(res.Findings), resp.ScanID, resp.Service)
 
+	// po-72d5d: an identical resubmission inside the server's dedup
+	// window replays the previous scan instead of processing this one.
+	// Say so, or the line above reads as fresh work.
+	noteCachedScan(os.Stderr, resp)
+
 	// po-gli2z: surface server-side warnings and partial acceptance
 	// instead of swallowing them; a green submit line with silently
 	// rejected findings is exactly the failure mode this issue fixed.
