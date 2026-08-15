@@ -29,10 +29,12 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # PAT with contents:write on revelara-ai/homebrew-tap so goreleaser
-          # can push the generated Homebrew cask. GITHUB_TOKEN can't reach the
-          # tap repo. Set this secret before tagging or the release step fails.
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          # HOMEBREW_TAP_TOKEN is deliberately NOT exported any more: this repo
+          # no longer publishes the `rvl` cask (see .goreleaser.yml), so the
+          # release job has no reason to hold a PAT that can write to
+          # revelara-ai/homebrew-tap. The repo secret itself is left in place —
+          # it is the same secret name the new publisher uses, and deleting it
+          # here would not help that repo, which needs its own copy.
 
       - uses: sigstore/cosign-installer@v3
 
