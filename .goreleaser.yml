@@ -45,37 +45,18 @@ release:
   draft: false
   prerelease: auto
 
-# Homebrew distribution via a self-hosted tap. `brews:` (formula) is deprecated
-# as of goreleaser v2.10 in favour of `homebrew_casks:`, so we use casks here.
-# Install: `brew install revelara-ai/tap/rvl`.
+# Homebrew: this repo NO LONGER publishes the `rvl` cask.
 #
-# Requires a HOMEBREW_TAP_TOKEN secret (a PAT with contents:write on
-# revelara-ai/homebrew-tap) exported into the release job env — the default
-# GITHUB_TOKEN only has access to this repo, not the tap.
-homebrew_casks:
-  - name: rvl
-    binaries:
-      - rvl
-    repository:
-      owner: revelara-ai
-      name: homebrew-tap
-      branch: main
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Casks
-    homepage: "https://revelara.ai"
-    description: "Revelara CLI — scan your codebase for reliability risks"
-    commit_author:
-      name: revelara-release-bot
-      email: release@revelara.ai
-    commit_msg_template: "brew: rvl {{ .Tag }}"
-    # Skip publishing the cask for pre-releases (prerelease: auto above).
-    skip_upload: auto
-    # The CLI binary is not Apple-notarised. Strip the Gatekeeper quarantine
-    # attribute on install so `rvl` runs without a "developer cannot be
-    # verified" block. No-op on Linux brew.
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/rvl"]
-          end
+# `Casks/rvl.rb` in revelara-ai/homebrew-tap has exactly one publisher, and as
+# of the rvl v2 cutover (po-av01j.154) that publisher is the Rust scanner repo
+# — the one that takes over the `rvl-cli` name and ships `rvl` 1.x. It renders
+# the cask itself from cargo-dist's dist-manifest.json
+# (.github/workflows/publish-cask.yml + ci/render-cask.sh over there).
+#
+# If a `homebrew_casks:` block is ever restored here, both repos will race to
+# write the same file in the tap and whichever released last wins — including
+# an 0.12.x security patch silently downgrading brew users off 1.x. Don't.
+#
+# This repo is frozen to v1 security fixes; `goreleaser release` still builds
+# and publishes archives, SBOMs and checksums to GitHub Releases as before, so
+# the URLs already-published casks point at keep resolving.
